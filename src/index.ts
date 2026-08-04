@@ -364,6 +364,26 @@ async function main(): Promise<void> {
 			res.json({ status: 'ok', authenticated: Boolean(db.getTokens()) });
 		});
 
+		app.get('/privacy', (_req: Request, res: Response) => {
+			res.type('text/plain').send(
+				[
+					'Privacy Policy - Personal Services (Whoop MCP relay)',
+					'',
+					'This is a personal, self-hosted application used solely by its owner to access',
+					"their own Whoop account data (recovery, sleep, strain, workouts) via Whoop's",
+					'official API, for personal use only.',
+					'',
+					'- This application is not distributed to or used by anyone other than its owner.',
+					"- Data retrieved from Whoop is stored only in this application's private database",
+					"  and used only to answer the owner's own queries.",
+					'- Data is never shared, sold, or transmitted to any third party.',
+					"- OAuth tokens are stored to refresh access to the owner's own Whoop account only.",
+					'',
+					'Contact: rommssh@gmail.com',
+				].join('\n'),
+			);
+		});
+
 		app.all('/mcp', async (req: Request, res: Response) => {
 			const sessionId = req.headers['mcp-session-id'] as string | undefined;
 

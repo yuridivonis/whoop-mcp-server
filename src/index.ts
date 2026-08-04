@@ -17,6 +17,7 @@ const config = {
 	clientSecret: process.env.WHOOP_CLIENT_SECRET ?? '',
 	redirectUri: process.env.WHOOP_REDIRECT_URI ?? 'http://localhost:3000/callback',
 	dbPath: process.env.DB_PATH ?? './whoop.db',
+	authToken: process.env.MCP_AUTH_TOKEN ?? '',
 	port: Number.parseInt(process.env.PORT ?? '3000', 10),
 	mode: process.env.MCP_MODE ?? 'http',
 };
@@ -382,6 +383,18 @@ async function main(): Promise<void> {
 					'Contact: rommssh@gmail.com',
 				].join('\n'),
 			);
+		});
+
+		app.all('/mcp', async (req: Request, res: Response, next) => {
+			if (config.authToken) {
+				const header = req.headers.authorization ?? '';
+				const expected = `Bearer ${config.authToken}`;
+				if (header !== expected) {
+					res.status(401).json({ error: 'Unauthorized' });
+					return;
+				}
+			}
+			next();
 		});
 
 		app.all('/mcp', async (req: Request, res: Response) => {

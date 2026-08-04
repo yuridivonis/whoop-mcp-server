@@ -427,7 +427,7 @@ async function main(): Promise<void> {
 					await server.connect(transport);
 				}
 
-				await transport.handleRequest(req, res);
+				await transport.handleRequest(req, res, req.body);
 				return;
 			}
 

@@ -379,8 +379,6 @@ async function main(): Promise<void> {
 					"  and used only to answer the owner's own queries.",
 					'- Data is never shared, sold, or transmitted to any third party.',
 					"- OAuth tokens are stored to refresh access to the owner's own Whoop account only.",
-					'',
-					'Contact: rommssh@gmail.com',
 				].join('\n'),
 			);
 		});
@@ -427,6 +425,7 @@ async function main(): Promise<void> {
 					await server.connect(transport);
 				}
 
+				process.stderr.write(`DEBUG req.body type=${typeof req.body} value=${JSON.stringify(req.body)}\n`);
 				await transport.handleRequest(req, res, req.body);
 				return;
 			}

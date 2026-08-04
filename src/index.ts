@@ -425,7 +425,6 @@ async function main(): Promise<void> {
 					await server.connect(transport);
 				}
 
-				process.stderr.write(`DEBUG req.body type=${typeof req.body} value=${JSON.stringify(req.body)}\n`);
 				await transport.handleRequest(req, res, req.body);
 				return;
 			}

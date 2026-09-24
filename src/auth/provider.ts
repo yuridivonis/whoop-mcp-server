@@ -219,8 +219,6 @@ export class McpAuthProvider implements OAuthServerProvider {
 
 	private issueTokens(clientId: string, scopes: string, familyId: string): OAuthTokens {
 		const now = Date.now();
-		this.db.deleteExpiredOAuth(now);
-
 		const accessToken = newSecret();
 		const refreshToken = newSecret();
 		this.db.saveOAuthToken({
@@ -239,6 +237,8 @@ export class McpAuthProvider implements OAuthServerProvider {
 			scopes,
 			expires_at: now + REFRESH_TOKEN_TTL_MS,
 		});
+		// After saving, so this family counts as live and keeps its replay markers.
+		this.db.deleteExpiredOAuth(now);
 
 		return {
 			access_token: accessToken,

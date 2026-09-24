@@ -499,9 +499,19 @@ export class WhoopDatabase {
 		this.db.prepare('DELETE FROM oauth_tokens WHERE family_id = ?').run(familyId);
 	}
 
+	/**
+	 * Deletes expired codes and tokens. A used code or refresh token is kept while its
+	 * family still has a live token: it is the marker that catches a late replay, so it
+	 * must outlive its own expiry for as long as a thief could be using the family.
+	 */
 	deleteExpiredOAuth(now: number): void {
-		this.db.prepare('DELETE FROM oauth_codes WHERE expires_at < ?').run(now);
-		this.db.prepare('DELETE FROM oauth_tokens WHERE expires_at < ?').run(now);
+		const liveFamilies = 'SELECT family_id FROM oauth_tokens WHERE consumed_at IS NULL AND expires_at >= ?';
+		this.db.prepare(
+			`DELETE FROM oauth_codes WHERE expires_at < ? AND (consumed_at IS NULL OR family_id NOT IN (${liveFamilies}))`
+		).run(now, now);
+		this.db.prepare(
+			`DELETE FROM oauth_tokens WHERE expires_at < ? AND (consumed_at IS NULL OR family_id NOT IN (${liveFamilies}))`
+		).run(now, now);
 	}
 
 	close(): void {

@@ -207,7 +207,10 @@ describe('sign-in protects /mcp', () => {
 		const stolen = { grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: clientId };
 
 		// The attacker refreshes first and gets a fresh pair...
-		const attacker = await (await postToken(server.baseUrl, stolen)).json() as { access_token: string; refresh_token: string };
+		const attackerRes = await postToken(server.baseUrl, stolen);
+		assert.equal(attackerRes.status, 200);
+		const attacker = await attackerRes.json() as { access_token: string; refresh_token: string };
+		assert.equal((await mcpRequest(server.baseUrl, attacker.access_token, INITIALIZE)).status, 200);
 		// ...then the real client presents the same token, which shows it leaked.
 		assert.equal((await postToken(server.baseUrl, stolen)).status, 400);
 
@@ -222,7 +225,10 @@ describe('sign-in protects /mcp', () => {
 		const code = await authorizationCode(server.baseUrl, clientId, challenge);
 		const exchange = { grant_type: 'authorization_code', code, code_verifier: verifier, client_id: clientId, redirect_uri: CLIENT_REDIRECT_URI };
 
-		const first = await (await postToken(server.baseUrl, exchange)).json() as { access_token: string };
+		const firstRes = await postToken(server.baseUrl, exchange);
+		assert.equal(firstRes.status, 200);
+		const first = await firstRes.json() as { access_token: string };
+		assert.equal((await mcpRequest(server.baseUrl, first.access_token, INITIALIZE)).status, 200);
 		assert.equal((await postToken(server.baseUrl, exchange)).status, 400);
 		assert.equal((await mcpRequest(server.baseUrl, first.access_token, INITIALIZE)).status, 401);
 	});
@@ -308,6 +314,73 @@ describe('failed sign-in limits', () => {
 			}
 			const headers = { 'X-Forwarded-For': '198.51.100.1' };
 			assert.equal((await submitPassword(server.baseUrl, params, 'one more guess', { headers })).status, 429);
+		} finally {
+			await server.close();
+		}
+	});
+});
+
+describe('refresh-token replay detection', () => {
+	it('still works after the replayed token\'s own expiry, while its family is alive', async t => {
+		const DAY = 24 * 60 * 60 * 1000;
+		let now = Date.now();
+		t.mock.method(Date, 'now', () => now);
+
+		const server = await startTestServer();
+		try {
+			const { clientId, tokens } = await signIn(server.baseUrl);
+			const refresh = (refreshToken: string) =>
+				postToken(server.baseUrl, { grant_type: 'refresh_token', refresh_token: refreshToken, client_id: clientId });
+			const refreshOk = async (refreshToken: string) => {
+				const res = await refresh(refreshToken);
+				assert.equal(res.status, 200);
+				return await res.json() as { refresh_token: string };
+			};
+
+			// An attacker steals the refresh token and keeps its family alive past the
+			// stolen token's own 30-day expiry by refreshing every 20 days.
+			let attacker = await refreshOk(tokens.refresh_token);
+			for (let step = 0; step < 2; step++) {
+				now += 20 * DAY;
+				attacker = await refreshOk(attacker.refresh_token);
+			}
+
+			// 40 days in, the owner's client finally presents the stolen (long expired) token.
+			assert.equal((await refresh(tokens.refresh_token)).status, 400);
+			assert.equal((await refresh(attacker.refresh_token)).status, 400, 'the attacker\'s family should be revoked');
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('also catches an authorization code replayed after the code itself expired', async t => {
+		let now = Date.now();
+		t.mock.method(Date, 'now', () => now);
+
+		const server = await startTestServer();
+		try {
+			const clientId = await registerClient(server.baseUrl);
+			const { verifier, challenge } = pkcePair();
+			const code = await authorizationCode(server.baseUrl, clientId, challenge);
+			const exchange = { grant_type: 'authorization_code', code, code_verifier: verifier, client_id: clientId, redirect_uri: CLIENT_REDIRECT_URI };
+			const firstRes = await postToken(server.baseUrl, exchange);
+			assert.equal(firstRes.status, 200);
+			const first = await firstRes.json() as { refresh_token: string };
+
+			// Well past the code's 5-minute life, a refresh runs the expiry cleanup...
+			now += 60 * 60 * 1000;
+			const refreshed = await postToken(server.baseUrl, {
+				grant_type: 'refresh_token',
+				refresh_token: first.refresh_token,
+				client_id: clientId,
+			});
+			assert.equal(refreshed.status, 200);
+			const current = await refreshed.json() as { access_token: string };
+			assert.equal((await mcpRequest(server.baseUrl, current.access_token, INITIALIZE)).status, 200);
+
+			// ...and the replayed code still revokes the family.
+			assert.equal((await postToken(server.baseUrl, exchange)).status, 400);
+			assert.equal((await mcpRequest(server.baseUrl, current.access_token, INITIALIZE)).status, 401);
 		} finally {
 			await server.close();
 		}

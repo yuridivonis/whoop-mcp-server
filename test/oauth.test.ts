@@ -303,7 +303,10 @@ describe('failed sign-in limits', () => {
 		}
 	});
 
-	it('cannot be dodged with a forged X-Forwarded-For header', async () => {
+	it('cannot be dodged with a forged X-Forwarded-For header', async t => {
+		// express-rate-limit warns about the forged header; in production that warning
+		// points a self-hoster behind a proxy to TRUST_PROXY, here it is expected.
+		t.mock.method(console, 'error', () => {});
 		const server = await startTestServer();
 		try {
 			const clientId = await registerClient(server.baseUrl);

@@ -1,7 +1,5 @@
 import type {
 	WhoopTokens,
-	WhoopUser,
-	WhoopBodyMeasurement,
 	WhoopCycle,
 	WhoopRecovery,
 	WhoopSleep,
@@ -32,7 +30,7 @@ interface DateRange {
 
 /** WHOOP rejected the stored tokens; the user has to authorize again. */
 export class WhoopAuthError extends Error {
-	constructor(message = 'WHOOP authorization expired. Use the get_auth_url tool to reconnect.') {
+	constructor(message = 'Whoop authorization expired. Use the get_auth_url tool to reconnect.') {
 		super(message);
 		this.name = 'WhoopAuthError';
 	}
@@ -110,7 +108,7 @@ export class WhoopClient {
 		});
 
 		if (!response.ok) {
-			throw new Error(`WHOOP token request failed: ${response.status} ${await response.text()}`);
+			throw new Error(`Whoop token request failed: ${response.status} ${await response.text()}`);
 		}
 
 		const data = await response.json() as { access_token: string; refresh_token: string; expires_in: number };
@@ -123,7 +121,7 @@ export class WhoopClient {
 
 	private async request<T>(path: string, params?: Record<string, string>): Promise<T> {
 		if (!this.tokens) {
-			throw new WhoopAuthError('Not authenticated with WHOOP. Use the get_auth_url tool to connect.');
+			throw new WhoopAuthError('Not authenticated with Whoop. Use the get_auth_url tool to connect.');
 		}
 
 		if (this.tokens.expires_at - Date.now() < 5 * 60 * 1000) {
@@ -161,11 +159,11 @@ export class WhoopClient {
 		}
 
 		if (response.status === 429) {
-			throw new Error('WHOOP rate limit reached. Try again in a minute.');
+			throw new Error('Whoop rate limit reached. Try again in a minute.');
 		}
 
 		if (!response.ok) {
-			throw new Error(`WHOOP API request failed: ${response.status} ${await response.text()}`);
+			throw new Error(`Whoop API request failed: ${response.status} ${await response.text()}`);
 		}
 
 		return response.json() as Promise<T>;
@@ -195,20 +193,12 @@ export class WhoopClient {
 
 			if (!nextToken) return results;
 			if (seenCursors.has(nextToken)) {
-				throw new Error(`WHOOP returned the same page cursor twice for ${path}; stopping.`);
+				throw new Error(`Whoop returned the same page cursor twice for ${path}; stopping.`);
 			}
 			seenCursors.add(nextToken);
 		}
 
-		throw new Error(`WHOOP pagination for ${path} did not finish after ${MAX_PAGES} pages; stopping.`);
-	}
-
-	async getProfile(): Promise<WhoopUser> {
-		return this.request<WhoopUser>('/v2/user/profile/basic');
-	}
-
-	async getBodyMeasurement(): Promise<WhoopBodyMeasurement> {
-		return this.request<WhoopBodyMeasurement>('/v2/user/measurement/body');
+		throw new Error(`Whoop pagination for ${path} did not finish after ${MAX_PAGES} pages; stopping.`);
 	}
 
 	async getAllCycles(range?: DateRange): Promise<WhoopCycle[]> {

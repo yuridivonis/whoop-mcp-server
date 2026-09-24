@@ -91,6 +91,7 @@ export function createApp({ config, db, client, sync, authStates }: AppDeps): ex
 		try {
 			const tokens = await client.exchangeCodeForTokens(code);
 			db.saveTokens(tokens);
+			// Runs in the background; WhoopSync logs a failure, and the next tool call retries.
 			sync.syncDays(90).catch(() => {});
 			res.send('Authorization successful! You can close this window.');
 		} catch {

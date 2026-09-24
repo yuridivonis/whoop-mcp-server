@@ -1,5 +1,5 @@
-import { WhoopClient } from './whoop-client.js';
-import { WhoopDatabase } from './database.js';
+import type { WhoopClient } from './whoop-client.js';
+import type { WhoopDatabase } from './database.js';
 
 interface SyncStats {
 	cycles: number;
@@ -91,15 +91,10 @@ export class WhoopSync {
 		return this.syncDays(7);
 	}
 
-	needsFullSync(): boolean {
-		const state = this.db.getSyncState();
-		if (!state.lastSyncAt) return true;
-
-		const lastSync = new Date(state.lastSyncAt);
-		const hoursSinceSync = (Date.now() - lastSync.getTime()) / (1000 * 60 * 60);
-		return hoursSinceSync > 24;
-	}
-
+	/**
+	 * Called before every data tool: the first sync pulls 90 days, later ones refresh the
+	 * last 7 days, and data synced within the hour is left alone.
+	 */
 	async smartSync(): Promise<SmartSyncResult> {
 		// A sync already running will leave the data fresh; wait for it (and surface its
 		// failure) instead of queueing another.

@@ -4,19 +4,6 @@ export interface WhoopTokens {
 	expires_at: number;
 }
 
-export interface WhoopUser {
-	user_id: number;
-	email: string;
-	first_name: string;
-	last_name: string;
-}
-
-export interface WhoopBodyMeasurement {
-	height_meter: number;
-	weight_kilogram: number;
-	max_heart_rate: number;
-}
-
 export interface WhoopCycle {
 	id: number;
 	user_id: number;

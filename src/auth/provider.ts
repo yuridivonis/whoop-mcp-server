@@ -143,7 +143,8 @@ export class McpAuthProvider implements OAuthServerProvider {
 		const codeHash = hashSecret(authorizationCode);
 		const stored = this.db.consumeOAuthCode(codeHash, Date.now());
 		if (!stored) {
-			// Two exchanges raced past the PKCE check: revoke what the first one got.
+			// The code is unknown, or a second exchange raced past the PKCE check; in that
+			// case, revoke what the first exchange received.
 			const used = this.db.getOAuthCode(codeHash);
 			if (used) this.db.deleteOAuthFamily(used.family_id);
 			throw new InvalidGrantError('Invalid authorization code');
@@ -171,6 +172,7 @@ export class McpAuthProvider implements OAuthServerProvider {
 		const tokenHash = hashSecret(refreshToken);
 		const stored = this.db.consumeRefreshToken(tokenHash, client.client_id, Date.now());
 		if (!stored) {
+			// A spent refresh token presented again has leaked: revoke its whole family.
 			const used = this.db.getOAuthToken(tokenHash, 'refresh');
 			if (used?.consumed_at != null) {
 				this.db.deleteOAuthFamily(used.family_id);

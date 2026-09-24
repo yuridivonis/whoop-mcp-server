@@ -155,8 +155,8 @@ export class WhoopDatabase {
 			);
 
 			-- family_id ties a code to every token issued from it, so a replayed code or
-			-- refresh token revokes the whole sign-in. Used rows are kept (consumed_at) until
-			-- they expire, which is what makes a replay detectable.
+			-- refresh token revokes the whole sign-in. Used rows are kept (consumed_at) while
+			-- their family is still live, which is what makes a replay detectable.
 			CREATE TABLE IF NOT EXISTS oauth_codes (
 				code_hash TEXT PRIMARY KEY,
 				family_id TEXT NOT NULL,
@@ -214,7 +214,7 @@ export class WhoopDatabase {
 			// store fresh tokens, instead of crashing on every restart.
 			if (!this.warnedUnreadableTokens) {
 				this.warnedUnreadableTokens = true;
-				process.stderr.write('Stored WHOOP tokens could not be decrypted (encryption key changed?). Run get_auth_url to reconnect.\n');
+				process.stderr.write('Stored Whoop tokens could not be decrypted (encryption key changed?). Run get_auth_url to reconnect.\n');
 			}
 			return null;
 		}
@@ -386,25 +386,6 @@ export class WhoopDatabase {
 
 	getLatestSleep(): DbSleep | null {
 		return this.db.prepare('SELECT * FROM sleep WHERE is_nap = 0 ORDER BY start_time DESC LIMIT 1').get() as DbSleep | undefined ?? null;
-	}
-
-	getCyclesByDateRange(startDate: string, endDate: string): DbCycle[] {
-		return this.db.prepare(`
-			SELECT * FROM cycles WHERE start_time >= ? AND start_time <= ? ORDER BY start_time DESC
-		`).all(startDate, endDate) as DbCycle[];
-	}
-
-	getRecoveriesByDateRange(startDate: string, endDate: string): DbRecovery[] {
-		return this.db.prepare(`
-			SELECT * FROM recovery WHERE created_at >= ? AND created_at <= ? ORDER BY created_at DESC
-		`).all(startDate, endDate) as DbRecovery[];
-	}
-
-	getSleepsByDateRange(startDate: string, endDate: string, includeNaps = false): DbSleep[] {
-		const query = includeNaps
-			? 'SELECT * FROM sleep WHERE start_time >= ? AND start_time <= ? ORDER BY start_time DESC'
-			: 'SELECT * FROM sleep WHERE start_time >= ? AND start_time <= ? AND is_nap = 0 ORDER BY start_time DESC';
-		return this.db.prepare(query).all(startDate, endDate) as DbSleep[];
 	}
 
 	getWorkoutsByDateRange(startDate: string, endDate: string): DbWorkout[] {

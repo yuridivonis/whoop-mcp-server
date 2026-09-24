@@ -110,7 +110,7 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri }: T
 			},
 			{
 				name: 'get_strain_history',
-				description: 'Get training strain history and workout data.',
+				description: 'Get daily strain and calorie history.',
 				inputSchema: {
 					type: 'object',
 					properties: { days: { type: 'number', description: 'Number of days to analyze (default: 14, max: 90)' } },

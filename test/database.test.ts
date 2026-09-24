@@ -64,7 +64,8 @@ describe('stored WHOOP tokens', () => {
 		process.env.ENCRYPTION_SECRET = originalSecret;
 	});
 
-	it('read as "not connected" instead of crashing after the encryption key changes', () => {
+	it('read as "not connected" instead of crashing after the encryption key changes', t => {
+		t.mock.method(process.stderr, 'write', () => true); // the expected "could not be decrypted" warning
 		const db = new WhoopDatabase(':memory:');
 		process.env.ENCRYPTION_SECRET = 'key-before-rotation';
 		db.saveTokens({ access_token: 'access', refresh_token: 'refresh', expires_at: Date.now() + 3_600_000 });

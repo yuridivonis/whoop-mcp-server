@@ -56,7 +56,7 @@ export function sendLoginPage(res: Response, { client, params, error, status = 2
 <body>
 <main>
   <h1>Sign in to your Whoop MCP Server</h1>
-  <p><strong>${clientName}</strong> is asking to read your WHOOP data through this server.</p>
+  <p><strong>${clientName}</strong> is asking to read your Whoop data through this server.</p>
   ${error ? `<div class="error" role="alert">${escapeHtml(error)}</div>` : ''}
   <form method="POST" action="/authorize">
     ${hiddenField('client_id', client.client_id)}

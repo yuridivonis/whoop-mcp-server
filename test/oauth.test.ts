@@ -1,0 +1,228 @@
+import { after, before, describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+	CLIENT_REDIRECT_URI,
+	INITIALIZE,
+	PASSWORD,
+	authorizeParams,
+	mcpRequest,
+	pkcePair,
+	postToken,
+	readRpc,
+	registerClient,
+	signIn,
+	startTestServer,
+	submitPassword,
+	type TestServer,
+} from './helpers.js';
+
+describe('sign-in protects /mcp', () => {
+	let server: TestServer;
+
+	before(async () => {
+		server = await startTestServer();
+	});
+
+	after(async () => {
+		await server.close();
+	});
+
+	it('rejects requests without a token and points clients to the sign-in metadata', async () => {
+		const res = await mcpRequest(server.baseUrl, undefined, INITIALIZE);
+		assert.equal(res.status, 401);
+		assert.match(
+			res.headers.get('www-authenticate') ?? '',
+			new RegExp(`resource_metadata="${server.baseUrl}/.well-known/oauth-protected-resource/mcp"`),
+		);
+	});
+
+	it('rejects a made-up token', async () => {
+		const res = await mcpRequest(server.baseUrl, 'not-a-real-token', INITIALIZE);
+		assert.equal(res.status, 401);
+	});
+
+	it('publishes discovery metadata for Claude.ai', async () => {
+		const resource = await (await fetch(`${server.baseUrl}/.well-known/oauth-protected-resource/mcp`)).json() as {
+			resource: string;
+			authorization_servers: string[];
+		};
+		assert.equal(resource.resource, `${server.baseUrl}/mcp`);
+		assert.deepEqual(resource.authorization_servers, [`${server.baseUrl}/`]);
+
+		const metadata = await (await fetch(`${server.baseUrl}/.well-known/oauth-authorization-server`)).json() as {
+			authorization_endpoint: string;
+			registration_endpoint: string;
+			code_challenge_methods_supported: string[];
+		};
+		assert.equal(metadata.authorization_endpoint, `${server.baseUrl}/authorize`);
+		assert.equal(metadata.registration_endpoint, `${server.baseUrl}/register`);
+		assert.deepEqual(metadata.code_challenge_methods_supported, ['S256']);
+	});
+
+	it('shows a sign-in page that cannot be framed', async () => {
+		const clientId = await registerClient(server.baseUrl);
+		const res = await fetch(`${server.baseUrl}/authorize?${authorizeParams(clientId, pkcePair().challenge)}`);
+		assert.equal(res.status, 200);
+		assert.equal(res.headers.get('x-frame-options'), 'DENY');
+		assert.match(await res.text(), /name="password"/);
+	});
+
+	it('rejects a wrong password without issuing a code', async () => {
+		const clientId = await registerClient(server.baseUrl);
+		const res = await submitPassword(server.baseUrl, authorizeParams(clientId, pkcePair().challenge), 'wrong password');
+		assert.equal(res.status, 401);
+		assert.equal(res.headers.get('location'), null);
+		assert.match(await res.text(), /Incorrect password/);
+	});
+
+	it('redirects back with a code and the client state after the right password', async () => {
+		const clientId = await registerClient(server.baseUrl);
+		const res = await submitPassword(server.baseUrl, authorizeParams(clientId, pkcePair().challenge), PASSWORD);
+		assert.equal(res.status, 302);
+		const location = new URL(res.headers.get('location') ?? '');
+		assert.equal(`${location.origin}${location.pathname}`, CLIENT_REDIRECT_URI);
+		assert.ok(location.searchParams.get('code'));
+		assert.equal(location.searchParams.get('state'), 'client-state');
+	});
+
+	it('refuses to issue tokens for another server', async () => {
+		const clientId = await registerClient(server.baseUrl);
+		const params = authorizeParams(clientId, pkcePair().challenge, { resource: 'https://other.example/mcp' });
+		const res = await submitPassword(server.baseUrl, params, PASSWORD);
+		assert.equal(res.status, 302);
+		assert.equal(new URL(res.headers.get('location') ?? '').searchParams.get('error'), 'invalid_target');
+	});
+
+	it('serves MCP to a signed-in client', async () => {
+		const { tokens } = await signIn(server.baseUrl);
+
+		const init = await mcpRequest(server.baseUrl, tokens.access_token, INITIALIZE);
+		assert.equal(init.status, 200);
+		const initBody = await readRpc<{ result: { serverInfo: { name: string; version: string } } }>(init);
+		assert.deepEqual(initBody.result.serverInfo, { name: 'whoop-mcp-server', version: '1.1.0' });
+
+		const list = await mcpRequest(server.baseUrl, tokens.access_token, { method: 'tools/list', params: {} });
+		const listBody = await readRpc<{ result: { tools: { name: string }[] } }>(list);
+		assert.deepEqual(
+			listBody.result.tools.map(tool => tool.name),
+			['get_today', 'get_recovery_trends', 'get_sleep_analysis', 'get_strain_history', 'sync_data', 'get_auth_url'],
+		);
+	});
+
+	it('accepts clients that leave text/event-stream out of Accept', async () => {
+		const { tokens } = await signIn(server.baseUrl);
+		const res = await mcpRequest(server.baseUrl, tokens.access_token, INITIALIZE, 'application/json');
+		assert.equal(res.status, 200);
+	});
+
+	it('answers GET and DELETE on /mcp with 405, since there are no sessions', async () => {
+		const { tokens } = await signIn(server.baseUrl);
+		for (const method of ['GET', 'DELETE']) {
+			const res = await fetch(`${server.baseUrl}/mcp`, { method, headers: { Authorization: `Bearer ${tokens.access_token}` } });
+			assert.equal(res.status, 405, method);
+		}
+	});
+
+	it('exchanges an authorization code only once', async () => {
+		const clientId = await registerClient(server.baseUrl);
+		const { verifier, challenge } = pkcePair();
+		const redirect = await submitPassword(server.baseUrl, authorizeParams(clientId, challenge), PASSWORD);
+		const code = new URL(redirect.headers.get('location') ?? '').searchParams.get('code') ?? '';
+		const exchange = { grant_type: 'authorization_code', code, code_verifier: verifier, client_id: clientId, redirect_uri: CLIENT_REDIRECT_URI };
+
+		assert.equal((await postToken(server.baseUrl, exchange)).status, 200);
+		const replay = await postToken(server.baseUrl, exchange);
+		assert.equal(replay.status, 400);
+		assert.equal((await replay.json() as { error: string }).error, 'invalid_grant');
+	});
+
+	it('rejects a code exchange with the wrong PKCE verifier', async () => {
+		const clientId = await registerClient(server.baseUrl);
+		const redirect = await submitPassword(server.baseUrl, authorizeParams(clientId, pkcePair().challenge), PASSWORD);
+		const code = new URL(redirect.headers.get('location') ?? '').searchParams.get('code') ?? '';
+		const res = await postToken(server.baseUrl, {
+			grant_type: 'authorization_code',
+			code,
+			code_verifier: pkcePair().verifier,
+			client_id: clientId,
+			redirect_uri: CLIENT_REDIRECT_URI,
+		});
+		assert.equal(res.status, 400);
+	});
+
+	it('rotates refresh tokens and refuses a replayed one', async () => {
+		const { clientId, tokens } = await signIn(server.baseUrl);
+		const refresh = { grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: clientId };
+
+		const first = await postToken(server.baseUrl, refresh);
+		assert.equal(first.status, 200);
+		const rotated = await first.json() as { access_token: string; refresh_token: string };
+		assert.notEqual(rotated.refresh_token, tokens.refresh_token);
+		assert.equal((await mcpRequest(server.baseUrl, rotated.access_token, INITIALIZE)).status, 200);
+
+		assert.equal((await postToken(server.baseUrl, refresh)).status, 400);
+	});
+
+	it('stops accepting a revoked access token', async () => {
+		const { clientId, tokens } = await signIn(server.baseUrl);
+		const revoke = await fetch(`${server.baseUrl}/revoke`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: new URLSearchParams({ token: tokens.access_token, client_id: clientId }),
+		});
+		assert.equal(revoke.status, 200);
+		assert.equal((await mcpRequest(server.baseUrl, tokens.access_token, INITIALIZE)).status, 401);
+	});
+
+	it('does not store tokens in plain text', async () => {
+		const { tokens } = await signIn(server.baseUrl);
+		assert.equal(server.db.getOAuthToken(tokens.access_token, 'access'), undefined);
+	});
+});
+
+describe('failed sign-ins', () => {
+	let server: TestServer;
+
+	before(async () => {
+		server = await startTestServer();
+	});
+
+	after(async () => {
+		await server.close();
+	});
+
+	it('are limited to 10 per address every 15 minutes', async () => {
+		const clientId = await registerClient(server.baseUrl);
+		const params = authorizeParams(clientId, pkcePair().challenge);
+		for (let attempt = 1; attempt <= 10; attempt++) {
+			assert.equal((await submitPassword(server.baseUrl, params, `guess ${attempt}`)).status, 401);
+		}
+		assert.equal((await submitPassword(server.baseUrl, params, 'guess 11')).status, 429);
+		// Even the right password waits out the window, or guessing would still pay off.
+		assert.equal((await submitPassword(server.baseUrl, params, PASSWORD)).status, 429);
+	});
+});
+
+describe('sign-in state', () => {
+	it('survives a restart, so a redeploy does not sign Claude out', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'whoop-mcp-test-'));
+		const dbPath = join(dir, 'whoop.db');
+		try {
+			const first = await startTestServer(dbPath);
+			const { tokens } = await signIn(first.baseUrl);
+			await first.close();
+
+			const second = await startTestServer(dbPath);
+			try {
+				assert.equal((await mcpRequest(second.baseUrl, tokens.access_token, INITIALIZE)).status, 200);
+			} finally {
+				await second.close();
+			}
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+});

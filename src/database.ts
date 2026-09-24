@@ -10,6 +10,8 @@ import type {
 	DbRecovery,
 	DbSleep,
 	DbWorkout,
+	DbOAuthCode,
+	DbOAuthToken,
 } from './types.js';
 
 interface TokenRow {
@@ -141,6 +143,31 @@ export class WhoopDatabase {
 				zone_four_milli INTEGER,
 				zone_five_milli INTEGER,
 				synced_at TEXT DEFAULT CURRENT_TIMESTAMP
+			);
+
+			-- Sign-in for /mcp (OAuth 2.1). Codes and tokens are stored as SHA-256 hashes,
+			-- so a copy of this file cannot be used to call the server.
+			CREATE TABLE IF NOT EXISTS oauth_clients (
+				client_id TEXT PRIMARY KEY,
+				client_info TEXT NOT NULL,
+				created_at TEXT DEFAULT CURRENT_TIMESTAMP
+			);
+
+			CREATE TABLE IF NOT EXISTS oauth_codes (
+				code_hash TEXT PRIMARY KEY,
+				client_id TEXT NOT NULL,
+				code_challenge TEXT NOT NULL,
+				redirect_uri TEXT NOT NULL,
+				scopes TEXT NOT NULL,
+				expires_at INTEGER NOT NULL
+			);
+
+			CREATE TABLE IF NOT EXISTS oauth_tokens (
+				token_hash TEXT PRIMARY KEY,
+				kind TEXT NOT NULL CHECK (kind IN ('access', 'refresh')),
+				client_id TEXT NOT NULL,
+				scopes TEXT NOT NULL,
+				expires_at INTEGER NOT NULL
 			);
 
 			CREATE INDEX IF NOT EXISTS idx_cycles_start ON cycles(start_time);
@@ -395,6 +422,58 @@ export class WhoopDatabase {
 			WHERE strain IS NOT NULL AND start_time >= DATE('now', '-' || ? || ' days')
 			ORDER BY start_time DESC
 		`).all(days) as StrainTrendRow[];
+	}
+
+	getOAuthClient(clientId: string): string | undefined {
+		const row = this.db.prepare('SELECT client_info FROM oauth_clients WHERE client_id = ?').get(clientId) as { client_info: string } | undefined;
+		return row?.client_info;
+	}
+
+	saveOAuthClient(clientId: string, clientInfo: string): void {
+		this.db.prepare('INSERT INTO oauth_clients (client_id, client_info) VALUES (?, ?)').run(clientId, clientInfo);
+	}
+
+	saveOAuthCode(code: DbOAuthCode): void {
+		this.db.prepare(`
+			INSERT INTO oauth_codes (code_hash, client_id, code_challenge, redirect_uri, scopes, expires_at)
+			VALUES (?, ?, ?, ?, ?, ?)
+		`).run(code.code_hash, code.client_id, code.code_challenge, code.redirect_uri, code.scopes, code.expires_at);
+	}
+
+	getOAuthCode(codeHash: string): DbOAuthCode | undefined {
+		return this.db.prepare('SELECT * FROM oauth_codes WHERE code_hash = ?').get(codeHash) as DbOAuthCode | undefined;
+	}
+
+	/** Deletes and returns the code in one statement, so it can be exchanged only once. */
+	takeOAuthCode(codeHash: string): DbOAuthCode | undefined {
+		return this.db.prepare('DELETE FROM oauth_codes WHERE code_hash = ? RETURNING *').get(codeHash) as DbOAuthCode | undefined;
+	}
+
+	saveOAuthToken(token: DbOAuthToken): void {
+		this.db.prepare(`
+			INSERT INTO oauth_tokens (token_hash, kind, client_id, scopes, expires_at)
+			VALUES (?, ?, ?, ?, ?)
+		`).run(token.token_hash, token.kind, token.client_id, token.scopes, token.expires_at);
+	}
+
+	getOAuthToken(tokenHash: string, kind: DbOAuthToken['kind']): DbOAuthToken | undefined {
+		return this.db.prepare('SELECT * FROM oauth_tokens WHERE token_hash = ? AND kind = ?').get(tokenHash, kind) as DbOAuthToken | undefined;
+	}
+
+	/** Deletes and returns the token in one statement, so a refresh token works only once. */
+	takeOAuthToken(tokenHash: string, kind: DbOAuthToken['kind'], clientId: string): DbOAuthToken | undefined {
+		return this.db.prepare(
+			'DELETE FROM oauth_tokens WHERE token_hash = ? AND kind = ? AND client_id = ? RETURNING *'
+		).get(tokenHash, kind, clientId) as DbOAuthToken | undefined;
+	}
+
+	deleteOAuthToken(tokenHash: string, clientId: string): void {
+		this.db.prepare('DELETE FROM oauth_tokens WHERE token_hash = ? AND client_id = ?').run(tokenHash, clientId);
+	}
+
+	deleteExpiredOAuth(now: number): void {
+		this.db.prepare('DELETE FROM oauth_codes WHERE expires_at < ?').run(now);
+		this.db.prepare('DELETE FROM oauth_tokens WHERE expires_at < ?').run(now);
 	}
 
 	close(): void {

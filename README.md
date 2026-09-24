@@ -42,6 +42,7 @@ Built using the [Whoop Developer API v2](https://developer.whoop.com/docs/introd
    - `WHOOP_CLIENT_ID`: Your Whoop app client ID
    - `WHOOP_CLIENT_SECRET`: Your Whoop app client secret
    - `WHOOP_REDIRECT_URI`: `https://your-app.railway.app/callback`
+   - `MCP_AUTH_PASSWORD`: the password Claude will ask for when you connect. Generate one with `openssl rand -base64 24` and keep it in your password manager. The server refuses to start without it (at least 16 characters).
 5. Add a volume mounted at `/data` for persistent SQLite storage
 6. Deploy!
 
@@ -59,7 +60,22 @@ Built using the [Whoop Developer API v2](https://developer.whoop.com/docs/introd
 3. Enter:
    - **Name**: Whoop
    - **Remote MCP server URL**: `https://your-app.railway.app/mcp`
-4. Use it in any chat!
+4. Claude opens your server's sign-in page. Enter your `MCP_AUTH_PASSWORD`.
+5. Use it in any chat!
+
+Claude stays signed in across redeploys. Anyone without the password gets `401 Unauthorized` from `/mcp`.
+
+## Upgrading from 1.0.0
+
+1.1.0 puts a sign-in in front of `/mcp`. Version 1.0.0 had no authentication there, so any 1.0.0 server that worked with Claude over HTTP served its data to anyone who knew the URL. (Unmodified 1.0.0 also had a request-parsing bug that stopped Claude from connecting over HTTP at all; 1.1.0 fixes both.) To upgrade:
+
+1. Update your fork (GitHub's **Sync fork** button, or merge the upstream `main` branch).
+2. Set `MCP_AUTH_PASSWORD` in your Railway variables (see Setup, step 2). Without it, the new version won't start. That's deliberate.
+3. Redeploy.
+4. In Claude.ai → Settings → Connectors, remove the Whoop connector and add it again with the same URL. Claude shows the sign-in page once.
+5. If a tool says your Whoop authorization expired, run `get_auth_url` once to reconnect.
+
+If your 1.0.0 server worked with Claude on a public URL, assume your data could have been read. As a precaution, rotate your client secret in the WHOOP developer dashboard and update `WHOOP_CLIENT_SECRET`. If you haven't set `ENCRYPTION_SECRET`, the stored WHOOP tokens were encrypted with the old client secret, so run `get_auth_url` once afterwards.
 
 ## Local Development
 
@@ -72,11 +88,15 @@ cat > .env << EOF
 WHOOP_CLIENT_ID=your_client_id
 WHOOP_CLIENT_SECRET=your_client_secret
 WHOOP_REDIRECT_URI=http://localhost:3000/callback
+MCP_AUTH_PASSWORD=choose-a-local-password
 MCP_MODE=http
 EOF
 
 # Run in development mode
 npm run dev
+
+# Run the tests
+npm test
 ```
 
 ## Environment Variables
@@ -86,6 +106,9 @@ npm run dev
 | `WHOOP_CLIENT_ID` | Whoop OAuth client ID | Required |
 | `WHOOP_CLIENT_SECRET` | Whoop OAuth client secret | Required |
 | `WHOOP_REDIRECT_URI` | OAuth callback URL | `http://localhost:3000/callback` |
+| `MCP_AUTH_PASSWORD` | Password for the sign-in page that protects `/mcp` (16+ characters) | Required in `http` mode |
+| `PUBLIC_URL` | Public address of the server, if it differs from `WHOOP_REDIRECT_URI`'s | Origin of `WHOOP_REDIRECT_URI` |
+| `ENCRYPTION_SECRET` | Key for encrypting stored WHOOP tokens | `WHOOP_CLIENT_SECRET` |
 | `DB_PATH` | SQLite database path | `./whoop.db` |
 | `PORT` | HTTP server port | `3000` |
 | `MCP_MODE` | `http` for remote, `stdio` for local | `http` |

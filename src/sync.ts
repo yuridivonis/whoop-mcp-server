@@ -16,6 +16,8 @@ interface SmartSyncResult {
 export class WhoopSync {
 	private readonly client: WhoopClient;
 	private readonly db: WhoopDatabase;
+	/** Syncs never overlap: two tool calls at once would double the load on the WHOOP API. */
+	private inFlight: Promise<SyncStats> | null = null;
 
 	constructor(client: WhoopClient, db: WhoopDatabase) {
 		this.client = client;
@@ -23,6 +25,20 @@ export class WhoopSync {
 	}
 
 	async syncDays(days = 90): Promise<SyncStats> {
+		while (this.inFlight) {
+			await this.inFlight.catch(() => {});
+		}
+
+		const run = this.runSync(days);
+		this.inFlight = run;
+		try {
+			return await run;
+		} finally {
+			this.inFlight = null;
+		}
+	}
+
+	private async runSync(days: number): Promise<SyncStats> {
 		const endDate = new Date();
 		const startDate = new Date();
 		startDate.setDate(startDate.getDate() - days);
@@ -69,6 +85,13 @@ export class WhoopSync {
 	}
 
 	async smartSync(): Promise<SmartSyncResult> {
+		// A sync already running will leave the data fresh; wait for it (and surface its
+		// failure) instead of queueing another.
+		if (this.inFlight) {
+			await this.inFlight;
+			return { type: 'skip' };
+		}
+
 		const state = this.db.getSyncState();
 
 		if (!state.lastSyncAt) {

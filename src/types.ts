@@ -184,3 +184,22 @@ export interface DbWorkout {
 	zone_five_milli: number | null;
 	synced_at: string;
 }
+
+export interface DbOAuthCode {
+	code_hash: string;
+	client_id: string;
+	code_challenge: string;
+	redirect_uri: string;
+	/** Space-separated, as in the OAuth `scope` parameter. */
+	scopes: string;
+	expires_at: number;
+}
+
+export interface DbOAuthToken {
+	token_hash: string;
+	kind: 'access' | 'refresh';
+	client_id: string;
+	/** Space-separated, as in the OAuth `scope` parameter. */
+	scopes: string;
+	expires_at: number;
+}

@@ -38,6 +38,11 @@ export class WhoopSync {
 		this.inFlight = run;
 		try {
 			return await run;
+		} catch (error) {
+			// Tools report the failure to the user; this puts it in the server logs too.
+			const message = error instanceof Error ? error.message : String(error);
+			process.stderr.write(`Whoop sync failed: ${message}\n`);
+			throw error;
 		} finally {
 			this.inFlight = null;
 		}

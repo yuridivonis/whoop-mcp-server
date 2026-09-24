@@ -50,6 +50,22 @@ describe('WhoopSync', () => {
 		assert.equal(stats.maxConcurrent, 3);
 	});
 
+	it('writes a failed sync to the server log', async t => {
+		const { client } = slowClient();
+		(client as unknown as { getAllSleeps: () => Promise<never> }).getAllSleeps = async () => {
+			throw new Error('WHOOP API request failed: 503 upstream unavailable');
+		};
+		const logged: string[] = [];
+		t.mock.method(process.stderr, 'write', (chunk: string) => {
+			logged.push(chunk);
+			return true;
+		});
+
+		await assert.rejects(new WhoopSync(client, new WhoopDatabase(':memory:')).syncDays(7));
+
+		assert.deepEqual(logged, ['Whoop sync failed: WHOOP API request failed: 503 upstream unavailable\n']);
+	});
+
 	it('queues a full sync behind a running one instead of overlapping', async () => {
 		const { client, stats } = slowClient();
 		const sync = new WhoopSync(client, new WhoopDatabase(':memory:'));

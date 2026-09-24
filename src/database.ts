@@ -321,18 +321,18 @@ export class WhoopDatabase {
 					s.end,
 					s.nap ? 1 : 0,
 					s.score_state,
-					s.score?.stage_summary.total_in_bed_time_milli ?? null,
-					s.score?.stage_summary.total_awake_time_milli ?? null,
-					s.score?.stage_summary.total_light_sleep_time_milli ?? null,
-					s.score?.stage_summary.total_slow_wave_sleep_time_milli ?? null,
-					s.score?.stage_summary.total_rem_sleep_time_milli ?? null,
+					s.score?.stage_summary?.total_in_bed_time_milli ?? null,
+					s.score?.stage_summary?.total_awake_time_milli ?? null,
+					s.score?.stage_summary?.total_light_sleep_time_milli ?? null,
+					s.score?.stage_summary?.total_slow_wave_sleep_time_milli ?? null,
+					s.score?.stage_summary?.total_rem_sleep_time_milli ?? null,
 					s.score?.sleep_performance_percentage ?? null,
 					s.score?.sleep_efficiency_percentage ?? null,
 					s.score?.sleep_consistency_percentage ?? null,
 					s.score?.respiratory_rate ?? null,
-					s.score?.sleep_needed.baseline_milli ?? null,
-					s.score?.sleep_needed.need_from_sleep_debt_milli ?? null,
-					s.score?.sleep_needed.need_from_recent_strain_milli ?? null
+					s.score?.sleep_needed?.baseline_milli ?? null,
+					s.score?.sleep_needed?.need_from_sleep_debt_milli ?? null,
+					s.score?.sleep_needed?.need_from_recent_strain_milli ?? null
 				);
 			}
 		});
@@ -363,12 +363,12 @@ export class WhoopDatabase {
 					w.score?.average_heart_rate ?? null,
 					w.score?.max_heart_rate ?? null,
 					w.score?.kilojoule ?? null,
-					w.score?.zone_duration.zone_zero_milli ?? null,
-					w.score?.zone_duration.zone_one_milli ?? null,
-					w.score?.zone_duration.zone_two_milli ?? null,
-					w.score?.zone_duration.zone_three_milli ?? null,
-					w.score?.zone_duration.zone_four_milli ?? null,
-					w.score?.zone_duration.zone_five_milli ?? null
+					w.score?.zone_durations?.zone_zero_milli ?? null,
+					w.score?.zone_durations?.zone_one_milli ?? null,
+					w.score?.zone_durations?.zone_two_milli ?? null,
+					w.score?.zone_durations?.zone_three_milli ?? null,
+					w.score?.zone_durations?.zone_four_milli ?? null,
+					w.score?.zone_durations?.zone_five_milli ?? null
 				);
 			}
 		});

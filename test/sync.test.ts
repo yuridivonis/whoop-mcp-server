@@ -35,6 +35,21 @@ describe('WhoopSync', () => {
 		assert.equal(stats.fetches, 4); // one sync: cycles, recoveries, sleeps, workouts
 	});
 
+	it('keeps the next sync waiting until a failed sync\'s other requests have finished', async () => {
+		const { client, stats } = slowClient();
+		// One endpoint fails at once; the other three are still in flight.
+		(client as unknown as { getAllCycles: () => Promise<never> }).getAllCycles = async () => {
+			throw new Error('WHOOP API request failed: 500');
+		};
+		const sync = new WhoopSync(client, new WhoopDatabase(':memory:'));
+
+		const [failed, next] = await Promise.allSettled([sync.syncDays(7), sync.syncDays(7)]);
+
+		assert.equal(failed.status, 'rejected');
+		assert.equal(next.status, 'rejected');
+		assert.equal(stats.maxConcurrent, 3);
+	});
+
 	it('queues a full sync behind a running one instead of overlapping', async () => {
 		const { client, stats } = slowClient();
 		const sync = new WhoopSync(client, new WhoopDatabase(':memory:'));

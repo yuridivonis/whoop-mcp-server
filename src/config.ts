@@ -9,6 +9,8 @@ export interface Config {
 	publicUrl: URL;
 	/** Password for the sign-in page that protects /mcp. Required in http mode. */
 	authPassword: string;
+	/** Express `trust proxy`: which proxies in front of the app may report the client's address. */
+	trustProxy: number | string | false;
 }
 
 export class ConfigError extends Error {
@@ -20,6 +22,26 @@ export class ConfigError extends Error {
 
 const MIN_PASSWORD_LENGTH = 16;
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+function parseTrustProxy(env: NodeJS.ProcessEnv): number | string | false {
+	const value = env.TRUST_PROXY?.trim();
+	if (!value) {
+		// SECURITY: Railway routes every request through one edge proxy. Anywhere else,
+		// X-Forwarded-For is only trusted when configured: on a directly exposed server it
+		// would let each client choose its own address and dodge the per-address rate limits.
+		return env.RAILWAY_ENVIRONMENT_ID ? 1 : false;
+	}
+	if (value === 'false' || value === '0') return false;
+	if (/^\d+$/.test(value)) return Number(value);
+	if (value === 'true') {
+		throw new ConfigError(
+			'TRUST_PROXY=true would let any client choose its own IP address. ' +
+				'Set the number of proxies in front of the server (usually 1), or their addresses.',
+		);
+	}
+	// Proxy addresses or subnets, e.g. "loopback, 10.0.0.0/8".
+	return value;
+}
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 	const mode = env.MCP_MODE === 'stdio' ? 'stdio' : 'http';
@@ -58,5 +80,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 		mode,
 		publicUrl,
 		authPassword,
+		trustProxy: parseTrustProxy(env),
 	};
 }

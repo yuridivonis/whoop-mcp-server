@@ -104,15 +104,26 @@ export function authorizeParams(clientId: string, challenge: string, extra: Reco
 }
 
 /** Submits the sign-in form the way a browser would. */
-export function submitPassword(baseUrl: string, params: URLSearchParams, password: string): Promise<Response> {
+export function submitPassword(
+	baseUrl: string,
+	params: URLSearchParams,
+	password: string,
+	options: { path?: string; headers?: Record<string, string> } = {},
+): Promise<Response> {
 	const form = new URLSearchParams(params);
 	form.set('password', password);
-	return fetch(`${baseUrl}/authorize`, {
+	return fetch(`${baseUrl}${options.path ?? '/authorize'}`, {
 		method: 'POST',
-		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+		headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...options.headers },
 		body: form,
 		redirect: 'manual',
 	});
+}
+
+/** Signs in and returns the authorization code, without exchanging it. */
+export async function authorizationCode(baseUrl: string, clientId: string, challenge: string): Promise<string> {
+	const redirect = await submitPassword(baseUrl, authorizeParams(clientId, challenge), PASSWORD);
+	return new URL(redirect.headers.get('location') ?? '').searchParams.get('code') ?? '';
 }
 
 export function postToken(baseUrl: string, fields: Record<string, string>): Promise<Response> {

@@ -75,7 +75,7 @@ Claude stays signed in across redeploys. Anyone without the password gets `401 U
 4. In Claude.ai → Settings → Connectors, remove the Whoop connector and add it again with the same URL. Claude shows the sign-in page once.
 5. If a tool says your Whoop authorization expired, run `get_auth_url` once to reconnect.
 
-If your 1.0.0 server worked with Claude on a public URL, assume your data could have been read. As a precaution, rotate your client secret in the WHOOP developer dashboard and update `WHOOP_CLIENT_SECRET`. If you haven't set `ENCRYPTION_SECRET`, the stored WHOOP tokens were encrypted with the old client secret, so run `get_auth_url` once afterwards.
+If your 1.0.0 server worked with Claude on a public URL, assume your data could have been read. As a precaution, rotate your client secret in the WHOOP developer dashboard, update `WHOOP_CLIENT_SECRET`, and run `get_auth_url` once afterwards. Unless `ENCRYPTION_SECRET` is set, the stored WHOOP tokens were encrypted with the old client secret. The server starts anyway and treats WHOOP as disconnected until you reconnect.
 
 ## Local Development
 
@@ -107,8 +107,9 @@ npm test
 | `WHOOP_CLIENT_SECRET` | Whoop OAuth client secret | Required |
 | `WHOOP_REDIRECT_URI` | OAuth callback URL | `http://localhost:3000/callback` |
 | `MCP_AUTH_PASSWORD` | Password for the sign-in page that protects `/mcp` (16+ characters) | Required in `http` mode |
-| `PUBLIC_URL` | Public address of the server, if it differs from `WHOOP_REDIRECT_URI`'s | Origin of `WHOOP_REDIRECT_URI` |
+| `PUBLIC_URL` | Public address of the server, if it differs from `WHOOP_REDIRECT_URI`'s. Claude must connect to `PUBLIC_URL/mcp`. | Origin of `WHOOP_REDIRECT_URI` |
 | `ENCRYPTION_SECRET` | Key for encrypting stored WHOOP tokens | `WHOOP_CLIENT_SECRET` |
+| `TRUST_PROXY` | Proxies allowed to report the client's IP (used by the sign-in rate limits): a hop count, `false`, or addresses/subnets | `1` on Railway, otherwise `false` |
 | `DB_PATH` | SQLite database path | `./whoop.db` |
 | `PORT` | HTTP server port | `3000` |
 | `MCP_MODE` | `http` for remote, `stdio` for local | `http` |

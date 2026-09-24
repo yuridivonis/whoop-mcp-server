@@ -4,6 +4,7 @@ import type { AuthorizationParams, OAuthServerProvider } from '@modelcontextprot
 import type { OAuthRegisteredClientsStore } from '@modelcontextprotocol/sdk/server/auth/clients.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { InvalidGrantError, InvalidTargetError, InvalidTokenError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
+import { checkResourceAllowed } from '@modelcontextprotocol/sdk/shared/auth-utils.js';
 import type {
 	OAuthClientInformationFull,
 	OAuthTokenRevocationRequest,
@@ -47,6 +48,10 @@ interface McpAuthProviderOptions {
  * metadata, per-endpoint rate limits. This class decides who may sign in (whoever knows
  * MCP_AUTH_PASSWORD) and stores codes and tokens in SQLite, so a restart or redeploy
  * does not sign Claude out.
+ *
+ * SECURITY: each sign-in starts a token family. Codes and refresh tokens work once; a
+ * second use means one of them leaked, so the whole family is revoked, cutting off
+ * whoever used it first (RFC 9700 §4.14.2).
  */
 export class McpAuthProvider implements OAuthServerProvider {
 	private readonly db: WhoopDatabase;
@@ -81,9 +86,7 @@ export class McpAuthProvider implements OAuthServerProvider {
 	// SECURITY: the SDK has already checked client_id and redirect_uri against the
 	// registered client before this runs. Failed password attempts are rate-limited in app.ts.
 	async authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response): Promise<void> {
-		if (params.resource && params.resource.origin !== this.resourceUrl.origin) {
-			throw new InvalidTargetError('This server only issues tokens for its own MCP endpoint');
-		}
+		this.checkResource(params.resource);
 
 		const body = res.req.method === 'POST' ? res.req.body as { password?: unknown } : undefined;
 		if (body?.password === undefined) {
@@ -99,6 +102,7 @@ export class McpAuthProvider implements OAuthServerProvider {
 		const code = newSecret();
 		this.db.saveOAuthCode({
 			code_hash: hashSecret(code),
+			family_id: randomUUID(),
 			client_id: client.client_id,
 			code_challenge: params.codeChallenge,
 			redirect_uri: params.redirectUri,
@@ -119,6 +123,10 @@ export class McpAuthProvider implements OAuthServerProvider {
 		if (!stored || stored.client_id !== client.client_id) {
 			throw new InvalidGrantError('Invalid authorization code');
 		}
+		if (stored.consumed_at !== null) {
+			this.db.deleteOAuthFamily(stored.family_id);
+			throw new InvalidGrantError('Authorization code was already used');
+		}
 		return stored.code_challenge;
 	}
 
@@ -127,10 +135,20 @@ export class McpAuthProvider implements OAuthServerProvider {
 		authorizationCode: string,
 		_codeVerifier?: string,
 		redirectUri?: string,
+		resource?: URL,
 	): Promise<OAuthTokens> {
+		this.checkResource(resource);
+
 		// PKCE was verified by the SDK against challengeForAuthorizationCode before this runs.
-		const stored = this.db.takeOAuthCode(hashSecret(authorizationCode));
-		if (!stored || stored.client_id !== client.client_id) {
+		const codeHash = hashSecret(authorizationCode);
+		const stored = this.db.consumeOAuthCode(codeHash, Date.now());
+		if (!stored) {
+			// Two exchanges raced past the PKCE check: revoke what the first one got.
+			const used = this.db.getOAuthCode(codeHash);
+			if (used) this.db.deleteOAuthFamily(used.family_id);
+			throw new InvalidGrantError('Invalid authorization code');
+		}
+		if (stored.client_id !== client.client_id) {
 			throw new InvalidGrantError('Invalid authorization code');
 		}
 		if (stored.expires_at < Date.now()) {
@@ -139,16 +157,30 @@ export class McpAuthProvider implements OAuthServerProvider {
 		if (redirectUri !== undefined && redirectUri !== stored.redirect_uri) {
 			throw new InvalidGrantError('redirect_uri does not match the authorization request');
 		}
-		return this.issueTokens(client.client_id, stored.scopes);
+		return this.issueTokens(client.client_id, stored.scopes, stored.family_id);
 	}
 
-	async exchangeRefreshToken(client: OAuthClientInformationFull, refreshToken: string): Promise<OAuthTokens> {
-		// Taking the token deletes it: a replayed refresh token finds nothing.
-		const stored = this.db.takeOAuthToken(hashSecret(refreshToken), 'refresh', client.client_id);
-		if (!stored || stored.expires_at < Date.now()) {
+	async exchangeRefreshToken(
+		client: OAuthClientInformationFull,
+		refreshToken: string,
+		_scopes?: string[],
+		resource?: URL,
+	): Promise<OAuthTokens> {
+		this.checkResource(resource);
+
+		const tokenHash = hashSecret(refreshToken);
+		const stored = this.db.consumeRefreshToken(tokenHash, client.client_id, Date.now());
+		if (!stored) {
+			const used = this.db.getOAuthToken(tokenHash, 'refresh');
+			if (used?.consumed_at != null) {
+				this.db.deleteOAuthFamily(used.family_id);
+			}
 			throw new InvalidGrantError('Invalid refresh token');
 		}
-		return this.issueTokens(client.client_id, stored.scopes);
+		if (stored.expires_at < Date.now()) {
+			throw new InvalidGrantError('Refresh token has expired');
+		}
+		return this.issueTokens(client.client_id, stored.scopes, stored.family_id);
 	}
 
 	async verifyAccessToken(token: string): Promise<AuthInfo> {
@@ -161,15 +193,31 @@ export class McpAuthProvider implements OAuthServerProvider {
 			clientId: stored.client_id,
 			scopes: stored.scopes ? stored.scopes.split(' ') : [],
 			expiresAt: Math.floor(stored.expires_at / 1000),
+			resource: this.resourceUrl,
 		};
 	}
 
 	async revokeToken(client: OAuthClientInformationFull, request: OAuthTokenRevocationRequest): Promise<void> {
-		// RFC 7009: a client may only revoke its own tokens.
-		this.db.deleteOAuthToken(hashSecret(request.token), client.client_id);
+		const tokenHash = hashSecret(request.token);
+		const stored = this.db.getOAuthToken(tokenHash);
+		// RFC 7009: a client may only revoke its own tokens, and revoking a refresh token
+		// also revokes the access tokens issued alongside it.
+		if (!stored || stored.client_id !== client.client_id) return;
+		if (stored.kind === 'refresh') {
+			this.db.deleteOAuthFamily(stored.family_id);
+		} else {
+			this.db.deleteOAuthToken(tokenHash);
+		}
 	}
 
-	private issueTokens(clientId: string, scopes: string): OAuthTokens {
+	/** Tokens are only ever issued for this server's own /mcp endpoint (RFC 8707). */
+	private checkResource(resource: URL | undefined): void {
+		if (resource && !checkResourceAllowed({ requestedResource: resource, configuredResource: this.resourceUrl })) {
+			throw new InvalidTargetError(`This server only issues tokens for ${this.resourceUrl.href}`);
+		}
+	}
+
+	private issueTokens(clientId: string, scopes: string, familyId: string): OAuthTokens {
 		const now = Date.now();
 		this.db.deleteExpiredOAuth(now);
 
@@ -177,6 +225,7 @@ export class McpAuthProvider implements OAuthServerProvider {
 		const refreshToken = newSecret();
 		this.db.saveOAuthToken({
 			token_hash: hashSecret(accessToken),
+			family_id: familyId,
 			kind: 'access',
 			client_id: clientId,
 			scopes,
@@ -184,6 +233,7 @@ export class McpAuthProvider implements OAuthServerProvider {
 		});
 		this.db.saveOAuthToken({
 			token_hash: hashSecret(refreshToken),
+			family_id: familyId,
 			kind: 'refresh',
 			client_id: clientId,
 			scopes,

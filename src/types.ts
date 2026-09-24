@@ -187,19 +187,25 @@ export interface DbWorkout {
 
 export interface DbOAuthCode {
 	code_hash: string;
+	/** Shared by this code and every token issued from it. */
+	family_id: string;
 	client_id: string;
 	code_challenge: string;
 	redirect_uri: string;
 	/** Space-separated, as in the OAuth `scope` parameter. */
 	scopes: string;
 	expires_at: number;
+	consumed_at: number | null;
 }
 
 export interface DbOAuthToken {
 	token_hash: string;
+	family_id: string;
 	kind: 'access' | 'refresh';
 	client_id: string;
 	/** Space-separated, as in the OAuth `scope` parameter. */
 	scopes: string;
 	expires_at: number;
+	/** Set when a refresh token is used; a second use means it leaked. */
+	consumed_at: number | null;
 }

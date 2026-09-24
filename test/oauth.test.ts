@@ -7,6 +7,7 @@ import {
 	CLIENT_REDIRECT_URI,
 	INITIALIZE,
 	PASSWORD,
+	authorizationCode,
 	authorizeParams,
 	mcpRequest,
 	pkcePair,
@@ -88,12 +89,47 @@ describe('sign-in protects /mcp', () => {
 		assert.equal(location.searchParams.get('state'), 'client-state');
 	});
 
-	it('refuses to issue tokens for another server', async () => {
+	it('refuses to sign in for another server or another path on this one', async () => {
 		const clientId = await registerClient(server.baseUrl);
-		const params = authorizeParams(clientId, pkcePair().challenge, { resource: 'https://other.example/mcp' });
+		for (const resource of ['https://other.example/mcp', `${server.baseUrl}/callback`]) {
+			const params = authorizeParams(clientId, pkcePair().challenge, { resource });
+			const res = await submitPassword(server.baseUrl, params, PASSWORD);
+			assert.equal(res.status, 302, resource);
+			assert.equal(new URL(res.headers.get('location') ?? '').searchParams.get('error'), 'invalid_target', resource);
+		}
+	});
+
+	it('accepts this server\'s own /mcp as the resource', async () => {
+		const clientId = await registerClient(server.baseUrl);
+		const params = authorizeParams(clientId, pkcePair().challenge, { resource: `${server.baseUrl}/mcp` });
 		const res = await submitPassword(server.baseUrl, params, PASSWORD);
-		assert.equal(res.status, 302);
-		assert.equal(new URL(res.headers.get('location') ?? '').searchParams.get('error'), 'invalid_target');
+		assert.ok(new URL(res.headers.get('location') ?? '').searchParams.get('code'));
+	});
+
+	it('refuses to issue tokens for another server at the token endpoint', async () => {
+		const clientId = await registerClient(server.baseUrl);
+		const { verifier, challenge } = pkcePair();
+		const code = await authorizationCode(server.baseUrl, clientId, challenge);
+		const res = await postToken(server.baseUrl, {
+			grant_type: 'authorization_code',
+			code,
+			code_verifier: verifier,
+			client_id: clientId,
+			redirect_uri: CLIENT_REDIRECT_URI,
+			resource: 'https://other.example/mcp',
+		});
+		assert.equal(res.status, 400);
+		assert.equal((await res.json() as { error: string }).error, 'invalid_target');
+
+		const { clientId: refreshingClient, tokens } = await signIn(server.baseUrl);
+		const refresh = await postToken(server.baseUrl, {
+			grant_type: 'refresh_token',
+			refresh_token: tokens.refresh_token,
+			client_id: refreshingClient,
+			resource: 'https://other.example/mcp',
+		});
+		assert.equal(refresh.status, 400);
+		assert.equal((await refresh.json() as { error: string }).error, 'invalid_target');
 	});
 
 	it('serves MCP to a signed-in client', async () => {
@@ -166,6 +202,42 @@ describe('sign-in protects /mcp', () => {
 		assert.equal((await postToken(server.baseUrl, refresh)).status, 400);
 	});
 
+	it('cuts off the whole sign-in when a refresh token is replayed', async () => {
+		const { clientId, tokens } = await signIn(server.baseUrl);
+		const stolen = { grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: clientId };
+
+		// The attacker refreshes first and gets a fresh pair...
+		const attacker = await (await postToken(server.baseUrl, stolen)).json() as { access_token: string; refresh_token: string };
+		// ...then the real client presents the same token, which shows it leaked.
+		assert.equal((await postToken(server.baseUrl, stolen)).status, 400);
+
+		assert.equal((await mcpRequest(server.baseUrl, attacker.access_token, INITIALIZE)).status, 401);
+		const attackerRefresh = await postToken(server.baseUrl, { ...stolen, refresh_token: attacker.refresh_token });
+		assert.equal(attackerRefresh.status, 400);
+	});
+
+	it('revokes the tokens from an authorization code that is exchanged twice', async () => {
+		const clientId = await registerClient(server.baseUrl);
+		const { verifier, challenge } = pkcePair();
+		const code = await authorizationCode(server.baseUrl, clientId, challenge);
+		const exchange = { grant_type: 'authorization_code', code, code_verifier: verifier, client_id: clientId, redirect_uri: CLIENT_REDIRECT_URI };
+
+		const first = await (await postToken(server.baseUrl, exchange)).json() as { access_token: string };
+		assert.equal((await postToken(server.baseUrl, exchange)).status, 400);
+		assert.equal((await mcpRequest(server.baseUrl, first.access_token, INITIALIZE)).status, 401);
+	});
+
+	it('revokes the access token too when a refresh token is revoked', async () => {
+		const { clientId, tokens } = await signIn(server.baseUrl);
+		const revoke = await fetch(`${server.baseUrl}/revoke`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: new URLSearchParams({ token: tokens.refresh_token, client_id: clientId }),
+		});
+		assert.equal(revoke.status, 200);
+		assert.equal((await mcpRequest(server.baseUrl, tokens.access_token, INITIALIZE)).status, 401);
+	});
+
 	it('stops accepting a revoked access token', async () => {
 		const { clientId, tokens } = await signIn(server.baseUrl);
 		const revoke = await fetch(`${server.baseUrl}/revoke`, {
@@ -203,6 +275,42 @@ describe('failed sign-ins', () => {
 		assert.equal((await submitPassword(server.baseUrl, params, 'guess 11')).status, 429);
 		// Even the right password waits out the window, or guessing would still pay off.
 		assert.equal((await submitPassword(server.baseUrl, params, PASSWORD)).status, 429);
+	});
+});
+
+describe('failed sign-in limits', () => {
+	it('cover every path that reaches the sign-in form', async () => {
+		const server = await startTestServer();
+		try {
+			const clientId = await registerClient(server.baseUrl);
+			const params = authorizeParams(clientId, pkcePair().challenge);
+			const paths = ['/authorize', '/authorize/', '/authorize//', '/AUTHORIZE'];
+			for (let attempt = 0; attempt < 10; attempt++) {
+				const path = paths[attempt % paths.length];
+				assert.equal((await submitPassword(server.baseUrl, params, `guess ${attempt}`, { path })).status, 401, path);
+			}
+			for (const path of paths) {
+				assert.equal((await submitPassword(server.baseUrl, params, 'one more guess', { path })).status, 429, path);
+			}
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('cannot be dodged with a forged X-Forwarded-For header', async () => {
+		const server = await startTestServer();
+		try {
+			const clientId = await registerClient(server.baseUrl);
+			const params = authorizeParams(clientId, pkcePair().challenge);
+			for (let attempt = 0; attempt < 10; attempt++) {
+				const headers = { 'X-Forwarded-For': `203.0.113.${attempt}` };
+				assert.equal((await submitPassword(server.baseUrl, params, `guess ${attempt}`, { headers })).status, 401);
+			}
+			const headers = { 'X-Forwarded-For': '198.51.100.1' };
+			assert.equal((await submitPassword(server.baseUrl, params, 'one more guess', { headers })).status, 429);
+		} finally {
+			await server.close();
+		}
 	});
 });
 

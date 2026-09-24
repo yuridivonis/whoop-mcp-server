@@ -51,6 +51,7 @@ interface StrainTrendRow {
 
 export class WhoopDatabase {
 	private db: Database.Database;
+	private warnedUnreadableTokens = false;
 
 	constructor(dbPath = './whoop.db') {
 		this.db = new Database(dbPath);
@@ -153,22 +154,31 @@ export class WhoopDatabase {
 				created_at TEXT DEFAULT CURRENT_TIMESTAMP
 			);
 
+			-- family_id ties a code to every token issued from it, so a replayed code or
+			-- refresh token revokes the whole sign-in. Used rows are kept (consumed_at) until
+			-- they expire, which is what makes a replay detectable.
 			CREATE TABLE IF NOT EXISTS oauth_codes (
 				code_hash TEXT PRIMARY KEY,
+				family_id TEXT NOT NULL,
 				client_id TEXT NOT NULL,
 				code_challenge TEXT NOT NULL,
 				redirect_uri TEXT NOT NULL,
 				scopes TEXT NOT NULL,
-				expires_at INTEGER NOT NULL
+				expires_at INTEGER NOT NULL,
+				consumed_at INTEGER
 			);
 
 			CREATE TABLE IF NOT EXISTS oauth_tokens (
 				token_hash TEXT PRIMARY KEY,
+				family_id TEXT NOT NULL,
 				kind TEXT NOT NULL CHECK (kind IN ('access', 'refresh')),
 				client_id TEXT NOT NULL,
 				scopes TEXT NOT NULL,
-				expires_at INTEGER NOT NULL
+				expires_at INTEGER NOT NULL,
+				consumed_at INTEGER
 			);
+
+			CREATE INDEX IF NOT EXISTS idx_oauth_tokens_family ON oauth_tokens(family_id);
 
 			CREATE INDEX IF NOT EXISTS idx_cycles_start ON cycles(start_time);
 			CREATE INDEX IF NOT EXISTS idx_recovery_created ON recovery(created_at);
@@ -193,13 +203,21 @@ export class WhoopDatabase {
 		const row = this.db.prepare('SELECT * FROM tokens WHERE id = 1').get() as TokenRow | undefined;
 		if (!row) return null;
 
-		const accessToken = isEncrypted(row.access_token)
-			? decrypt(row.access_token)
-			: row.access_token;
-
-		const refreshToken = isEncrypted(row.refresh_token)
-			? decrypt(row.refresh_token)
-			: row.refresh_token;
+		let accessToken: string;
+		let refreshToken: string;
+		try {
+			accessToken = isEncrypted(row.access_token) ? decrypt(row.access_token) : row.access_token;
+			refreshToken = isEncrypted(row.refresh_token) ? decrypt(row.refresh_token) : row.refresh_token;
+		} catch {
+			// The key changed (ENCRYPTION_SECRET, or WHOOP_CLIENT_SECRET when that is unset).
+			// Treat WHOOP as disconnected so the server still starts and get_auth_url can
+			// store fresh tokens, instead of crashing on every restart.
+			if (!this.warnedUnreadableTokens) {
+				this.warnedUnreadableTokens = true;
+				process.stderr.write('Stored WHOOP tokens could not be decrypted (encryption key changed?). Run get_auth_url to reconnect.\n');
+			}
+			return null;
+		}
 
 		return {
 			access_token: accessToken,
@@ -433,42 +451,52 @@ export class WhoopDatabase {
 		this.db.prepare('INSERT INTO oauth_clients (client_id, client_info) VALUES (?, ?)').run(clientId, clientInfo);
 	}
 
-	saveOAuthCode(code: DbOAuthCode): void {
+	saveOAuthCode(code: Omit<DbOAuthCode, 'consumed_at'>): void {
 		this.db.prepare(`
-			INSERT INTO oauth_codes (code_hash, client_id, code_challenge, redirect_uri, scopes, expires_at)
-			VALUES (?, ?, ?, ?, ?, ?)
-		`).run(code.code_hash, code.client_id, code.code_challenge, code.redirect_uri, code.scopes, code.expires_at);
+			INSERT INTO oauth_codes (code_hash, family_id, client_id, code_challenge, redirect_uri, scopes, expires_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+		`).run(code.code_hash, code.family_id, code.client_id, code.code_challenge, code.redirect_uri, code.scopes, code.expires_at);
 	}
 
 	getOAuthCode(codeHash: string): DbOAuthCode | undefined {
 		return this.db.prepare('SELECT * FROM oauth_codes WHERE code_hash = ?').get(codeHash) as DbOAuthCode | undefined;
 	}
 
-	/** Deletes and returns the code in one statement, so it can be exchanged only once. */
-	takeOAuthCode(codeHash: string): DbOAuthCode | undefined {
-		return this.db.prepare('DELETE FROM oauth_codes WHERE code_hash = ? RETURNING *').get(codeHash) as DbOAuthCode | undefined;
-	}
-
-	saveOAuthToken(token: DbOAuthToken): void {
-		this.db.prepare(`
-			INSERT INTO oauth_tokens (token_hash, kind, client_id, scopes, expires_at)
-			VALUES (?, ?, ?, ?, ?)
-		`).run(token.token_hash, token.kind, token.client_id, token.scopes, token.expires_at);
-	}
-
-	getOAuthToken(tokenHash: string, kind: DbOAuthToken['kind']): DbOAuthToken | undefined {
-		return this.db.prepare('SELECT * FROM oauth_tokens WHERE token_hash = ? AND kind = ?').get(tokenHash, kind) as DbOAuthToken | undefined;
-	}
-
-	/** Deletes and returns the token in one statement, so a refresh token works only once. */
-	takeOAuthToken(tokenHash: string, kind: DbOAuthToken['kind'], clientId: string): DbOAuthToken | undefined {
+	/** Marks the code used and returns it, in one statement, so it can be exchanged only once. */
+	consumeOAuthCode(codeHash: string, now: number): DbOAuthCode | undefined {
 		return this.db.prepare(
-			'DELETE FROM oauth_tokens WHERE token_hash = ? AND kind = ? AND client_id = ? RETURNING *'
-		).get(tokenHash, kind, clientId) as DbOAuthToken | undefined;
+			'UPDATE oauth_codes SET consumed_at = ? WHERE code_hash = ? AND consumed_at IS NULL RETURNING *'
+		).get(now, codeHash) as DbOAuthCode | undefined;
 	}
 
-	deleteOAuthToken(tokenHash: string, clientId: string): void {
-		this.db.prepare('DELETE FROM oauth_tokens WHERE token_hash = ? AND client_id = ?').run(tokenHash, clientId);
+	saveOAuthToken(token: Omit<DbOAuthToken, 'consumed_at'>): void {
+		this.db.prepare(`
+			INSERT INTO oauth_tokens (token_hash, family_id, kind, client_id, scopes, expires_at)
+			VALUES (?, ?, ?, ?, ?, ?)
+		`).run(token.token_hash, token.family_id, token.kind, token.client_id, token.scopes, token.expires_at);
+	}
+
+	getOAuthToken(tokenHash: string, kind?: DbOAuthToken['kind']): DbOAuthToken | undefined {
+		const row = this.db.prepare('SELECT * FROM oauth_tokens WHERE token_hash = ?').get(tokenHash) as DbOAuthToken | undefined;
+		return kind === undefined || row?.kind === kind ? row : undefined;
+	}
+
+	/** Marks the refresh token used and returns it, in one statement, so it works only once. */
+	consumeRefreshToken(tokenHash: string, clientId: string, now: number): DbOAuthToken | undefined {
+		return this.db.prepare(`
+			UPDATE oauth_tokens SET consumed_at = ?
+			WHERE token_hash = ? AND kind = 'refresh' AND client_id = ? AND consumed_at IS NULL
+			RETURNING *
+		`).get(now, tokenHash, clientId) as DbOAuthToken | undefined;
+	}
+
+	deleteOAuthToken(tokenHash: string): void {
+		this.db.prepare('DELETE FROM oauth_tokens WHERE token_hash = ?').run(tokenHash);
+	}
+
+	/** Revokes every token issued from one sign-in. */
+	deleteOAuthFamily(familyId: string): void {
+		this.db.prepare('DELETE FROM oauth_tokens WHERE family_id = ?').run(familyId);
 	}
 
 	deleteExpiredOAuth(now: number): void {

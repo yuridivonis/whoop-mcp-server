@@ -37,18 +37,24 @@ function acceptEventStream(req: Request, _res: Response, next: NextFunction): vo
 
 export function createApp({ config, db, client, sync, authStates }: AppDeps): express.Express {
 	const app = express();
-	// Railway and similar hosts sit one proxy hop in front of the app; the rate limits
-	// below need the client's address, not the proxy's.
-	app.set('trust proxy', 1);
+	// The rate limits below need the client's address; see TRUST_PROXY in config.ts.
+	app.set('trust proxy', config.trustProxy);
 	app.use(express.json());
 
 	const mcpUrl = new URL('/mcp', config.publicUrl);
 	const provider = new McpAuthProvider({ db, password: config.authPassword, resourceUrl: mcpUrl });
 
 	// SECURITY: forkers choose their own passwords, so failed sign-ins are limited per
-	// address and in total. Successful sign-ins (a redirect) do not count.
-	const failedSignIn = { skipSuccessfulRequests: true, standardHeaders: 'draft-8' as const, legacyHeaders: false };
-	app.post(
+	// address and in total. Successful sign-ins (a redirect) do not count. Mounted with
+	// app.use, like the SDK's own /authorize handler, so every path that reaches the
+	// password check (/authorize/, /AUTHORIZE, ...) is counted too.
+	const failedSignIn = {
+		skip: (req: Request) => req.method !== 'POST',
+		skipSuccessfulRequests: true,
+		standardHeaders: 'draft-8' as const,
+		legacyHeaders: false,
+	};
+	app.use(
 		'/authorize',
 		rateLimit({ ...failedSignIn, windowMs: 15 * 60 * 1000, limit: 10, message: 'Too many failed sign-in attempts. Try again in 15 minutes.' }),
 		rateLimit({ ...failedSignIn, windowMs: 60 * 60 * 1000, limit: 50, keyGenerator: () => 'all', message: 'Too many failed sign-in attempts. Try again in an hour.' }),

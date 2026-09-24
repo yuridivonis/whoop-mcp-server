@@ -13,6 +13,11 @@ interface SmartSyncResult {
 	stats?: SyncStats;
 }
 
+function valueOf<T>(result: PromiseSettledResult<T>): T {
+	if (result.status === 'rejected') throw result.reason;
+	return result.value;
+}
+
 export class WhoopSync {
 	private readonly client: WhoopClient;
 	private readonly db: WhoopDatabase;
@@ -46,12 +51,18 @@ export class WhoopSync {
 		const start = startDate.toISOString();
 		const end = endDate.toISOString();
 
-		const [cycles, recoveries, sleeps, workouts] = await Promise.all([
+		// allSettled, not all: when one request fails early, the sync must still wait for the
+		// other three, or the next sync would start while they are running.
+		const settled = await Promise.allSettled([
 			this.client.getAllCycles({ start, end }),
 			this.client.getAllRecoveries({ start, end }),
 			this.client.getAllSleeps({ start, end }),
 			this.client.getAllWorkouts({ start, end }),
 		]);
+		const cycles = valueOf(settled[0]);
+		const recoveries = valueOf(settled[1]);
+		const sleeps = valueOf(settled[2]);
+		const workouts = valueOf(settled[3]);
 
 		if (cycles.length > 0) this.db.upsertCycles(cycles);
 		if (recoveries.length > 0) this.db.upsertRecoveries(recoveries);

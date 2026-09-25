@@ -1,7 +1,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -153,7 +153,8 @@ describe('sign-in protects /mcp', () => {
 		const init = await mcpRequest(server.baseUrl, tokens.access_token, INITIALIZE);
 		assert.equal(init.status, 200);
 		const initBody = await readRpc<{ result: { serverInfo: { name: string; version: string } } }>(init);
-		assert.deepEqual(initBody.result.serverInfo, { name: 'whoop-mcp-server', version: '1.1.0' });
+		const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
+		assert.deepEqual(initBody.result.serverInfo, { name: 'whoop-mcp-server', version }, 'reports the version in package.json');
 
 		const list = await mcpRequest(server.baseUrl, tokens.access_token, { method: 'tools/list', params: {} });
 		const listBody = await readRpc<{ result: { tools: { name: string }[] } }>(list);

@@ -7,7 +7,7 @@ import type { WhoopSync } from './sync.js';
 import type { PendingAuthStates } from './auth-states.js';
 import { localDate, localTime } from './days.js';
 
-export const SERVER_VERSION = '1.1.0';
+export const SERVER_VERSION = '1.1.1';
 
 export interface ToolDeps {
 	db: WhoopDatabase;
@@ -198,7 +198,9 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri, mod
 					}
 
 					if (sleep) {
-						const totalSleep = (sleep.total_in_bed_milli ?? 0) - (sleep.total_awake_milli ?? 0);
+						// Time asleep is the sum of the stages. In bed minus awake would also count
+						// the time the strap recorded no data.
+						const totalSleep = (sleep.total_light_milli ?? 0) + (sleep.total_deep_milli ?? 0) + (sleep.total_rem_milli ?? 0);
 						response += `## Last Night's Sleep\n`;
 						response += `- **Total Sleep**: ${formatDuration(totalSleep)}\n`;
 						response += `- **Performance**: ${sleep.sleep_performance?.toFixed(0) ?? 'N/A'}%\n`;

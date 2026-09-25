@@ -62,8 +62,9 @@ describe('data tools', () => {
 			nap: false,
 			score_state: 'SCORED',
 			score: {
+				// 7 hours asleep in 7h 50m in bed: 30 minutes awake, and 20 minutes the strap recorded no data.
 				stage_summary: {
-					total_in_bed_time_milli: 27_000_000, total_awake_time_milli: 1_800_000, total_no_data_time_milli: 0,
+					total_in_bed_time_milli: 28_200_000, total_awake_time_milli: 1_800_000, total_no_data_time_milli: 1_200_000,
 					total_light_sleep_time_milli: 12_000_000, total_slow_wave_sleep_time_milli: 7_000_000,
 					total_rem_sleep_time_milli: 6_200_000, sleep_cycle_count: 5, disturbance_count: 3,
 				},
@@ -144,6 +145,15 @@ describe('data tools', () => {
 
 		const recovery = await callTool(server, accessToken, 'get_recovery_trends', { days: 14 });
 		assert.match(recovery, new RegExp(`\\| ${today} \\| 85% \\| 69\\.3 ms \\| 50 bpm \\|`));
+	});
+
+	it('counts time asleep, not the time the strap recorded no data', async () => {
+		const today = await callTool(server, accessToken, 'get_today');
+		assert.match(today, /\*\*Total Sleep\*\*: 7h 0m/);
+
+		const sleep = await callTool(server, accessToken, 'get_sleep_analysis', { days: 14 });
+		assert.match(sleep, /\| 7\.0h \|/);
+		assert.match(sleep, /\*\*Duration\*\*: 7\.0 hours/);
 	});
 
 	it('lists workouts with local date and time, activity, strain and time in zones 4–5', async () => {

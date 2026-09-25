@@ -11,6 +11,8 @@ export interface Config {
 	authPassword: string;
 	/** Express `trust proxy`: which proxies in front of the app may report the client's address. */
 	trustProxy: number | string | false;
+	/** Web clients whose sign-in redirect addresses are allowed; see auth/redirects.ts. */
+	allowedRedirectHosts: string[];
 }
 
 export class ConfigError extends Error {
@@ -21,6 +23,10 @@ export class ConfigError extends Error {
 }
 
 const MIN_PASSWORD_LENGTH = 16;
+// Claude (web, desktop and mobile) returns to claude.ai, moving to claude.com; ChatGPT
+// returns to chatgpt.com. Other web clients are added with MCP_ALLOWED_REDIRECT_HOSTS.
+const DEFAULT_REDIRECT_HOSTS = ['claude.ai', 'claude.com', 'chatgpt.com'];
+const HOST_NAME = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}$/;
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 function parseTrustProxy(env: NodeJS.ProcessEnv): number | string | false {
@@ -41,6 +47,19 @@ function parseTrustProxy(env: NodeJS.ProcessEnv): number | string | false {
 	}
 	// Proxy addresses or subnets, e.g. "loopback, 10.0.0.0/8".
 	return value;
+}
+
+function parseRedirectHosts(env: NodeJS.ProcessEnv): string[] {
+	const extra = (env.MCP_ALLOWED_REDIRECT_HOSTS ?? '')
+		.split(',')
+		.map(host => host.trim().toLowerCase())
+		.filter(Boolean);
+	for (const host of extra) {
+		if (!HOST_NAME.test(host)) {
+			throw new ConfigError(`MCP_ALLOWED_REDIRECT_HOSTS takes host names separated by commas, like example.com (got "${host}").`);
+		}
+	}
+	return [...new Set([...DEFAULT_REDIRECT_HOSTS, ...extra])];
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -81,5 +100,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 		publicUrl,
 		authPassword,
 		trustProxy: parseTrustProxy(env),
+		allowedRedirectHosts: parseRedirectHosts(env),
 	};
 }

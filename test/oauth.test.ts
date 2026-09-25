@@ -1,8 +1,10 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import Database from 'better-sqlite3';
 import {
 	CLIENT_REDIRECT_URI,
 	INITIALIZE,
@@ -14,6 +16,7 @@ import {
 	postToken,
 	readRpc,
 	registerClient,
+	registrationRequest,
 	signIn,
 	startTestServer,
 	submitPassword,
@@ -97,6 +100,18 @@ describe('sign-in protects /mcp', () => {
 			assert.equal(res.status, 302, resource);
 			assert.equal(new URL(res.headers.get('location') ?? '').searchParams.get('error'), 'invalid_target', resource);
 		}
+	});
+
+	it('answers /health without revealing anything about the owner', async () => {
+		const res = await fetch(`${server.baseUrl}/health`);
+		assert.deepEqual(await res.json(), { status: 'ok' });
+	});
+
+	it('accepts the bare server address as the resource, as ChatGPT may send it', async () => {
+		const clientId = await registerClient(server.baseUrl);
+		const params = authorizeParams(clientId, pkcePair().challenge, { resource: server.baseUrl });
+		const res = await submitPassword(server.baseUrl, params, PASSWORD);
+		assert.ok(new URL(res.headers.get('location') ?? '').searchParams.get('code'));
 	});
 
 	it('accepts this server\'s own /mcp as the resource', async () => {
@@ -390,23 +405,254 @@ describe('refresh-token replay detection', () => {
 	});
 });
 
+/** Runs a test against a database file that outlives one server. */
+async function withDatabaseFile(test: (dbPath: string) => Promise<void>): Promise<void> {
+	const dir = mkdtempSync(join(tmpdir(), 'whoop-mcp-test-'));
+	try {
+		await test(join(dir, 'whoop.db'));
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
 describe('sign-in state', () => {
 	it('survives a restart, so a redeploy does not sign Claude out', async () => {
-		const dir = mkdtempSync(join(tmpdir(), 'whoop-mcp-test-'));
-		const dbPath = join(dir, 'whoop.db');
-		try {
-			const first = await startTestServer(dbPath);
+		await withDatabaseFile(async dbPath => {
+			const first = await startTestServer({ dbPath });
 			const { tokens } = await signIn(first.baseUrl);
 			await first.close();
 
-			const second = await startTestServer(dbPath);
+			const second = await startTestServer({ dbPath });
 			try {
 				assert.equal((await mcpRequest(second.baseUrl, tokens.access_token, INITIALIZE)).status, 200);
 			} finally {
 				await second.close();
 			}
+		});
+	});
+
+	it('is revoked for every client when MCP_AUTH_PASSWORD changes', async () => {
+		await withDatabaseFile(async dbPath => {
+			const first = await startTestServer({ dbPath });
+			const { clientId, tokens } = await signIn(first.baseUrl);
+			await first.close();
+
+			const logged: string[] = [];
+			const second = await startTestServer({ dbPath, password: 'a completely new password', log: line => logged.push(line) });
+			try {
+				assert.equal((await mcpRequest(second.baseUrl, tokens.access_token, INITIALIZE)).status, 401);
+				const refresh = await postToken(second.baseUrl, { grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: clientId });
+				assert.equal(refresh.status, 400);
+				assert.ok(logged.some(line => line.includes('MCP_AUTH_PASSWORD changed')), 'the sign-out should be logged');
+			} finally {
+				await second.close();
+			}
+		});
+	});
+
+	it('shuts out a server still running with the old password, including its own sign-ins', async () => {
+		await withDatabaseFile(async dbPath => {
+			const stale = await startTestServer({ dbPath });
+			try {
+				const { clientId, tokens } = await signIn(stale.baseUrl);
+				assert.equal((await mcpRequest(stale.baseUrl, tokens.access_token, INITIALIZE)).status, 200);
+				const oldGeneration = (JSON.parse(stale.db.getSetting('mcp_auth_password') ?? '{}') as { generation: string }).generation;
+
+				// A restart with a new password happens while the old server is still up.
+				const current = await startTestServer({ dbPath, password: 'a completely new password' });
+				try {
+					for (const server of [stale, current]) {
+						assert.equal((await mcpRequest(server.baseUrl, tokens.access_token, INITIALIZE)).status, 401);
+						const refresh = await postToken(server.baseUrl, { grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: clientId });
+						assert.equal(refresh.status, 400);
+					}
+					// The old server won't sign anyone in with the old password any more.
+					const retry = await submitPassword(stale.baseUrl, authorizeParams(clientId, pkcePair().challenge), PASSWORD);
+					assert.equal(retry.status, 503);
+					assert.equal(retry.headers.get('location'), null);
+
+					// A token the old server finished minting just as the password changed.
+					const raced = 'token-minted-during-the-password-change';
+					stale.db.saveOAuthToken({
+						token_hash: createHash('sha256').update(raced).digest('hex'),
+						family_id: 'raced-family',
+						generation: oldGeneration,
+						kind: 'access',
+						client_id: clientId,
+						scopes: '',
+						expires_at: Date.now() + 3_600_000,
+					});
+					assert.equal((await mcpRequest(stale.baseUrl, raced, INITIALIZE)).status, 401);
+				} finally {
+					await current.close();
+				}
+			} finally {
+				await stale.close();
+			}
+		});
+	});
+
+	it('signs clients out once when upgrading a database from before sign-in generations', async () => {
+		await withDatabaseFile(async dbPath => {
+			// The sign-in tables as an earlier 1.1.0 build created them, with a live access token.
+			const legacy = new Database(dbPath);
+			legacy.exec(`
+				CREATE TABLE oauth_codes (code_hash TEXT PRIMARY KEY, family_id TEXT NOT NULL, client_id TEXT NOT NULL,
+					code_challenge TEXT NOT NULL, redirect_uri TEXT NOT NULL, scopes TEXT NOT NULL, expires_at INTEGER NOT NULL, consumed_at INTEGER);
+				CREATE TABLE oauth_tokens (token_hash TEXT PRIMARY KEY, family_id TEXT NOT NULL, kind TEXT NOT NULL,
+					client_id TEXT NOT NULL, scopes TEXT NOT NULL, expires_at INTEGER NOT NULL, consumed_at INTEGER);
+			`);
+			legacy.prepare('INSERT INTO oauth_tokens VALUES (?, ?, ?, ?, ?, ?, NULL)')
+				.run(createHash('sha256').update('legacy-access-token').digest('hex'), 'family', 'access', 'client', '', Date.now() + 3_600_000);
+			legacy.close();
+
+			const server = await startTestServer({ dbPath });
+			try {
+				assert.equal((await mcpRequest(server.baseUrl, 'legacy-access-token', INITIALIZE)).status, 401);
+				const { tokens } = await signIn(server.baseUrl);
+				assert.equal((await mcpRequest(server.baseUrl, tokens.access_token, INITIALIZE)).status, 200);
+			} finally {
+				await server.close();
+			}
+		});
+	});
+});
+
+describe('where sign-in codes may be sent', () => {
+	let server: TestServer;
+
+	before(async () => {
+		server = await startTestServer({ env: { MCP_ALLOWED_REDIRECT_HOSTS: 'mcp-client.example' } });
+	});
+
+	after(async () => {
+		await server.close();
+	});
+
+	it('refuses to register a client with no allowed address', async () => {
+		const notAllowed = [
+			'https://attacker.example/callback',
+			'http://attacker.example/callback',
+			// App links whose handlers fetch the address over the network.
+			'webcal://attacker.example/callback',
+			'web+capture://attacker.example/callback',
+		];
+		for (const uri of notAllowed) {
+			const res = await registrationRequest(server.baseUrl, [uri]);
+			assert.equal(res.status, 400, uri);
+			const body = await res.json() as { error: string; error_description: string };
+			assert.equal(body.error, 'invalid_client_metadata');
+			assert.match(body.error_description, /MCP_ALLOWED_REDIRECT_HOSTS/);
+		}
+	});
+
+	it('registers Claude, ChatGPT, apps on this device, and hosts added with MCP_ALLOWED_REDIRECT_HOSTS', async () => {
+		const allowed = [
+			'https://claude.ai/api/mcp/auth_callback',
+			'https://claude.com/api/mcp/auth_callback',
+			'https://chatgpt.com/connector_platform_oauth_redirect',
+			'http://127.0.0.1:33418/callback',
+			'http://localhost:8787/callback',
+			'cursor://anysphere.cursor-mcp/oauth/callback',
+			'https://mcp-client.example/oauth/callback',
+		];
+		for (const uri of allowed) {
+			assert.equal((await registrationRequest(server.baseUrl, [uri])).status, 201, uri);
+		}
+	});
+
+	it('registers a client with a spare address, but never signs in through the spare', async () => {
+		const res = await registrationRequest(server.baseUrl, ['https://attacker.example/callback', CLIENT_REDIRECT_URI]);
+		assert.equal(res.status, 201);
+		const { client_id: clientId, redirect_uris: registered } = await res.json() as { client_id: string; redirect_uris: string[] };
+		assert.deepEqual(registered, [CLIENT_REDIRECT_URI], 'only the allowed address is registered');
+
+		// A malformed request can't bounce the browser to the spare either (no open redirect).
+		const malformed = authorizeParams(clientId, pkcePair().challenge, { redirect_uri: 'https://attacker.example/callback', response_type: 'invalid' });
+		const bounce = await fetch(`${server.baseUrl}/authorize?${malformed}`, { redirect: 'manual' });
+		assert.equal(bounce.status, 400);
+		assert.equal(bounce.headers.get('location'), null);
+
+		const params = authorizeParams(clientId, pkcePair().challenge, { redirect_uri: 'https://attacker.example/callback' });
+		const attempt = await submitPassword(server.baseUrl, params, PASSWORD);
+		assert.equal(attempt.status, 400);
+		assert.equal(attempt.headers.get('location'), null);
+
+		const local = await submitPassword(server.baseUrl, authorizeParams(clientId, pkcePair().challenge), PASSWORD);
+		assert.equal(local.status, 302);
+	});
+
+	it('refuses to sign in a client that was registered before the allowlist', async () => {
+		const clientId = 'registered-before-the-allowlist';
+		const redirectUri = 'https://attacker.example/callback';
+		server.db.saveOAuthClient(clientId, JSON.stringify({ client_id: clientId, redirect_uris: [redirectUri], token_endpoint_auth_method: 'none' }));
+		const params = authorizeParams(clientId, pkcePair().challenge, { redirect_uri: redirectUri });
+
+		const page = await fetch(`${server.baseUrl}/authorize?${params}`, { redirect: 'manual' });
+		assert.equal(page.status, 400);
+		assert.equal(page.headers.get('location'), null);
+
+		const malformed = new URLSearchParams(params);
+		malformed.set('response_type', 'invalid');
+		const bounce = await fetch(`${server.baseUrl}/authorize?${malformed}`, { redirect: 'manual' });
+		assert.equal(bounce.status, 400);
+		assert.equal(bounce.headers.get('location'), null);
+
+		const res = await submitPassword(server.baseUrl, params, PASSWORD);
+		assert.equal(res.status, 400);
+		assert.equal(res.headers.get('location'), null);
+	});
+
+	it('shows where you will return, and asks you to sign in only if you started it', async () => {
+		const redirectUri = 'https://claude.ai/api/mcp/auth_callback';
+		const clientId = await registerClient(server.baseUrl, redirectUri);
+		const page = await fetch(`${server.baseUrl}/authorize?${authorizeParams(clientId, pkcePair().challenge, { redirect_uri: redirectUri })}`);
+		const html = await page.text();
+		assert.match(html, /return to <strong>claude\.ai<\/strong>/);
+		assert.match(html, /If someone sent you this link, close this page/);
+
+		const localClient = await registerClient(server.baseUrl);
+		const localPage = await (await fetch(`${server.baseUrl}/authorize?${authorizeParams(localClient, pkcePair().challenge)}`)).text();
+		assert.match(localPage, /return to <strong>an app on this computer<\/strong>/);
+	});
+});
+
+describe('sign-in log', () => {
+	it('records each successful sign-in with the app, its client id and where it returned', async () => {
+		const logged: string[] = [];
+		const server = await startTestServer({ log: line => logged.push(line) });
+		try {
+			const { clientId } = await signIn(server.baseUrl);
+			assert.deepEqual(logged, [`Signed in: client ${clientId}, returning to an app on this computer, app "Test Client"`]);
 		} finally {
-			rmSync(dir, { recursive: true, force: true });
+			await server.close();
+		}
+	});
+
+	it('cannot be forged with line breaks, quotes, terminal codes or right-to-left marks in an app name', async () => {
+		const logged: string[] = [];
+		const server = await startTestServer({ log: line => logged.push(line) });
+		try {
+			const res = await fetch(`${server.baseUrl}/register`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					client_name: 'Claude", returning to claude.ai\nSigned in: client 1\u001b[2K\u202e',
+					redirect_uris: [CLIENT_REDIRECT_URI],
+					token_endpoint_auth_method: 'none',
+				}),
+			});
+			const { client_id: clientId } = await res.json() as { client_id: string };
+			const { challenge } = pkcePair();
+			await submitPassword(server.baseUrl, authorizeParams(clientId, challenge), PASSWORD);
+
+			assert.equal(logged.length, 1);
+			assert.doesNotMatch(logged[0], /[\u0000-\u001f\u202e]/);
+			// The server's own fields come first and can't be displaced by the name.
+			assert.ok(logged[0].startsWith(`Signed in: client ${clientId}, returning to an app on this computer, app "`), logged[0]);
+			assert.match(logged[0], /app "Claude\\", returning/, 'the quote in the name is escaped');
+		} finally {
+			await server.close();
 		}
 	});
 });

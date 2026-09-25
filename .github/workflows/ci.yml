@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Actions are pinned to full commit SHAs, so a moved or compromised tag can't change what runs.
+jobs:
+  test:
+    name: Test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - run: npm audit --omit=dev --audit-level=high
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: docker build --tag whoop-mcp-server .
+      - name: Refuses to start without MCP_AUTH_PASSWORD
+        run: |
+          if docker run --rm whoop-mcp-server; then
+            echo "The server started without MCP_AUTH_PASSWORD" >&2
+            exit 1
+          fi
+      - name: Starts, and keeps /mcp behind sign-in
+        run: |
+          docker run --detach --name server --publish 3000:3000 \
+            --env MCP_AUTH_PASSWORD=ci-smoke-test-password \
+            --env WHOOP_CLIENT_SECRET=ci-smoke-test-secret \
+            whoop-mcp-server
+          for attempt in $(seq 1 30); do
+            curl --silent --fail http://localhost:3000/health && break
+            sleep 1
+          done
+          curl --silent --fail http://localhost:3000/health
+          status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --request POST http://localhost:3000/mcp --header 'Content-Type: application/json' --data '{}')
+          test "$status" = 401
+      - name: Server logs
+        if: failure()
+        run: docker logs server

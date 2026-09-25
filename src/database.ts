@@ -60,6 +60,13 @@ export class WhoopDatabase {
 	}
 
 	private initSchema(): void {
+		// Sign-in tables from before sign-in generations lack the generation column. They
+		// only hold sign-in state, so they are dropped and recreated: clients sign in once more.
+		const tokenColumns = this.db.prepare("SELECT name FROM pragma_table_info('oauth_tokens')").all() as { name: string }[];
+		if (tokenColumns.length > 0 && !tokenColumns.some(column => column.name === 'generation')) {
+			this.db.exec('DROP TABLE IF EXISTS oauth_codes; DROP TABLE IF EXISTS oauth_tokens;');
+		}
+
 		this.db.exec(`
 			CREATE TABLE IF NOT EXISTS tokens (
 				id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -160,6 +167,7 @@ export class WhoopDatabase {
 			CREATE TABLE IF NOT EXISTS oauth_codes (
 				code_hash TEXT PRIMARY KEY,
 				family_id TEXT NOT NULL,
+				generation TEXT NOT NULL,
 				client_id TEXT NOT NULL,
 				code_challenge TEXT NOT NULL,
 				redirect_uri TEXT NOT NULL,
@@ -171,6 +179,7 @@ export class WhoopDatabase {
 			CREATE TABLE IF NOT EXISTS oauth_tokens (
 				token_hash TEXT PRIMARY KEY,
 				family_id TEXT NOT NULL,
+				generation TEXT NOT NULL,
 				kind TEXT NOT NULL CHECK (kind IN ('access', 'refresh')),
 				client_id TEXT NOT NULL,
 				scopes TEXT NOT NULL,
@@ -179,6 +188,11 @@ export class WhoopDatabase {
 			);
 
 			CREATE INDEX IF NOT EXISTS idx_oauth_tokens_family ON oauth_tokens(family_id);
+
+			CREATE TABLE IF NOT EXISTS settings (
+				key TEXT PRIMARY KEY,
+				value TEXT NOT NULL
+			);
 
 			CREATE INDEX IF NOT EXISTS idx_cycles_start ON cycles(start_time);
 			CREATE INDEX IF NOT EXISTS idx_recovery_created ON recovery(created_at);
@@ -423,6 +437,15 @@ export class WhoopDatabase {
 		`).all(days) as StrainTrendRow[];
 	}
 
+	getSetting(key: string): string | undefined {
+		const row = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
+		return row?.value;
+	}
+
+	setSetting(key: string, value: string): void {
+		this.db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value);
+	}
+
 	getOAuthClient(clientId: string): string | undefined {
 		const row = this.db.prepare('SELECT client_info FROM oauth_clients WHERE client_id = ?').get(clientId) as { client_info: string } | undefined;
 		return row?.client_info;
@@ -434,9 +457,9 @@ export class WhoopDatabase {
 
 	saveOAuthCode(code: Omit<DbOAuthCode, 'consumed_at'>): void {
 		this.db.prepare(`
-			INSERT INTO oauth_codes (code_hash, family_id, client_id, code_challenge, redirect_uri, scopes, expires_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
-		`).run(code.code_hash, code.family_id, code.client_id, code.code_challenge, code.redirect_uri, code.scopes, code.expires_at);
+			INSERT INTO oauth_codes (code_hash, family_id, generation, client_id, code_challenge, redirect_uri, scopes, expires_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`).run(code.code_hash, code.family_id, code.generation, code.client_id, code.code_challenge, code.redirect_uri, code.scopes, code.expires_at);
 	}
 
 	getOAuthCode(codeHash: string): DbOAuthCode | undefined {
@@ -452,9 +475,9 @@ export class WhoopDatabase {
 
 	saveOAuthToken(token: Omit<DbOAuthToken, 'consumed_at'>): void {
 		this.db.prepare(`
-			INSERT INTO oauth_tokens (token_hash, family_id, kind, client_id, scopes, expires_at)
-			VALUES (?, ?, ?, ?, ?, ?)
-		`).run(token.token_hash, token.family_id, token.kind, token.client_id, token.scopes, token.expires_at);
+			INSERT INTO oauth_tokens (token_hash, family_id, generation, kind, client_id, scopes, expires_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+		`).run(token.token_hash, token.family_id, token.generation, token.kind, token.client_id, token.scopes, token.expires_at);
 	}
 
 	getOAuthToken(tokenHash: string, kind?: DbOAuthToken['kind']): DbOAuthToken | undefined {
@@ -463,16 +486,29 @@ export class WhoopDatabase {
 	}
 
 	/** Marks the refresh token used and returns it, in one statement, so it works only once. */
-	consumeRefreshToken(tokenHash: string, clientId: string, now: number): DbOAuthToken | undefined {
+	consumeRefreshToken(tokenHash: string, clientId: string, generation: string, now: number): DbOAuthToken | undefined {
 		return this.db.prepare(`
 			UPDATE oauth_tokens SET consumed_at = ?
-			WHERE token_hash = ? AND kind = 'refresh' AND client_id = ? AND consumed_at IS NULL
+			WHERE token_hash = ? AND kind = 'refresh' AND client_id = ? AND generation = ? AND consumed_at IS NULL
 			RETURNING *
-		`).get(now, tokenHash, clientId) as DbOAuthToken | undefined;
+		`).get(now, tokenHash, clientId, generation) as DbOAuthToken | undefined;
 	}
 
 	deleteOAuthToken(tokenHash: string): void {
 		this.db.prepare('DELETE FROM oauth_tokens WHERE token_hash = ?').run(tokenHash);
+	}
+
+	/**
+	 * Saves a new password record and deletes every code and token, in one transaction.
+	 * The old grants would be rejected anyway (they carry the old generation); this just
+	 * clears them out. Registered clients are kept.
+	 */
+	startSignInGeneration(settingKey: string, record: string): void {
+		this.db.transaction(() => {
+			this.setSetting(settingKey, record);
+			this.db.prepare('DELETE FROM oauth_codes').run();
+			this.db.prepare('DELETE FROM oauth_tokens').run();
+		})();
 	}
 
 	/** Revokes every token issued from one sign-in. */

@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import type { TestContext } from 'node:test';
 import type { AddressInfo } from 'node:net';
 import { createHash, randomBytes } from 'node:crypto';
 import { createApp } from '../src/app.js';
@@ -24,18 +25,28 @@ export interface TestServer {
 	close(): Promise<void>;
 }
 
+interface TestServerOptions {
+	dbPath?: string;
+	password?: string;
+	/** Extra environment for loadConfig, e.g. MCP_ALLOWED_REDIRECT_HOSTS. */
+	env?: Record<string, string>;
+	/** Receives the server's sign-in log lines. */
+	log?: (line: string) => void;
+}
+
 /** Starts the real app on a random port, with WHOOP and the sync stubbed out. */
-export async function startTestServer(dbPath = ':memory:'): Promise<TestServer> {
+export async function startTestServer({ dbPath = ':memory:', password = PASSWORD, env = {}, log = () => {} }: TestServerOptions = {}): Promise<TestServer> {
 	const httpServer = createServer();
 	await new Promise<void>(resolve => httpServer.listen(0, resolve));
 	const { port } = httpServer.address() as AddressInfo;
 	const baseUrl = `http://localhost:${port}`;
 
 	const config = loadConfig({
-		MCP_AUTH_PASSWORD: PASSWORD,
+		MCP_AUTH_PASSWORD: password,
 		PUBLIC_URL: baseUrl,
 		WHOOP_REDIRECT_URI: `${baseUrl}/callback`,
 		DB_PATH: dbPath,
+		...env,
 	});
 	const db = new WhoopDatabase(config.dbPath);
 	const authStates = new PendingAuthStates();
@@ -54,7 +65,7 @@ export async function startTestServer(dbPath = ':memory:'): Promise<TestServer> 
 		smartSync: async () => ({ type: 'skip' }),
 	} as unknown as WhoopSync;
 
-	httpServer.on('request', createApp({ config, db, client, sync, authStates }));
+	httpServer.on('request', createApp({ config, db, client, sync, authStates, log }));
 
 	return {
 		baseUrl,
@@ -69,19 +80,40 @@ export async function startTestServer(dbPath = ':memory:'): Promise<TestServer> 
 	};
 }
 
+/** An in-memory database that is closed when the test ends. */
+export function memoryDb(t: TestContext): WhoopDatabase {
+	const db = new WhoopDatabase(':memory:');
+	t.after(() => db.close());
+	return db;
+}
+
 export function pkcePair(): { verifier: string; challenge: string } {
 	const verifier = randomBytes(32).toString('base64url');
 	const challenge = createHash('sha256').update(verifier).digest('base64url');
 	return { verifier, challenge };
 }
 
-export async function registerClient(baseUrl: string): Promise<string> {
+export function registrationRequest(baseUrl: string, redirectUris: string[]): Promise<Response> {
+	return fetch(`${baseUrl}/register`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({
+			client_name: 'Test Client',
+			redirect_uris: redirectUris,
+			token_endpoint_auth_method: 'none',
+			grant_types: ['authorization_code', 'refresh_token'],
+			response_types: ['code'],
+		}),
+	});
+}
+
+export async function registerClient(baseUrl: string, redirectUri = CLIENT_REDIRECT_URI): Promise<string> {
 	const res = await fetch(`${baseUrl}/register`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({
 			client_name: 'Test Client',
-			redirect_uris: [CLIENT_REDIRECT_URI],
+			redirect_uris: [redirectUri],
 			token_endpoint_auth_method: 'none',
 			grant_types: ['authorization_code', 'refresh_token'],
 			response_types: ['code'],

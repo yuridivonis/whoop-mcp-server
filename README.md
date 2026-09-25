@@ -61,7 +61,7 @@ Built on the [Whoop Developer API v2](https://developer.whoop.com/docs/introduct
 
 Claude stays signed in across redeploys. Anyone without the password gets `401 Unauthorized` from `/mcp`.
 
-**Using another MCP client?** ChatGPT and apps on your own computer, such as Claude Code, Cursor, or VS Code, can sign in the same way. Other web-based clients need their host name in `MCP_ALLOWED_REDIRECT_HOSTS` first.
+**Using another MCP client?** ChatGPT and desktop apps that sign in through your own computer, such as Claude Code, Cursor, VS Code, or Windsurf, can sign in the same way. Other web-based clients need their host name in `MCP_ALLOWED_REDIRECT_HOSTS` first.
 
 ### 4. Connect your Whoop account
 
@@ -86,7 +86,7 @@ If your 1.0.0 server worked with Claude on a public URL, assume your data could 
 
 - `/mcp` only answers signed-in clients. Sign-in codes and refresh tokens work once and are stored as hashes; if one is ever used twice, the whole sign-in is revoked.
 - Failed sign-ins are limited to 10 per address every 15 minutes, and 50 per hour in total.
-- Sign-in codes only go to Claude, ChatGPT, apps on your own device, or web clients you add with `MCP_ALLOWED_REDIRECT_HOSTS`. The sign-in page shows where you'll return: only sign in if you started the connection yourself.
+- Sign-in codes only go to Claude, ChatGPT, desktop apps on your own computer, or web clients you add with `MCP_ALLOWED_REDIRECT_HOSTS`. The sign-in page shows where you'll return: only sign in if you started the connection yourself.
 - Whoop tokens are encrypted at rest (AES-256-GCM). Your health data stays in your server's database and is only sent to the client you signed in.
 - Changing `MCP_AUTH_PASSWORD` signs every client out.
 
@@ -131,7 +131,7 @@ npm run typecheck
 | `MCP_AUTH_PASSWORD` | Password for the sign-in page that protects `/mcp` (16+ characters) | Required in `http` mode |
 | `PUBLIC_URL` | Public address of the server, if it differs from `WHOOP_REDIRECT_URI`'s. Claude must connect to `PUBLIC_URL/mcp`. | Origin of `WHOOP_REDIRECT_URI` |
 | `ENCRYPTION_SECRET` | Key for encrypting stored Whoop tokens | `WHOOP_CLIENT_SECRET` |
-| `MCP_ALLOWED_REDIRECT_HOSTS` | Extra web clients allowed to receive sign-in codes, as host names separated by commas (e.g. `app.example.com`). Claude, ChatGPT, and apps on your own device are always allowed. | None |
+| `MCP_ALLOWED_REDIRECT_HOSTS` | Extra web clients allowed to receive sign-in codes, as host names separated by commas (e.g. `app.example.com`). Claude, ChatGPT, and desktop apps on your own computer (local addresses, and Cursor, VS Code, and Windsurf links) are always allowed. | None |
 | `TRUST_PROXY` | Proxies allowed to report the client's IP (used by the sign-in rate limits): a hop count, `false`, or addresses/subnets | `1` on Railway, otherwise `false` |
 | `DB_PATH` | SQLite database path | `./whoop.db` |
 | `PORT` | HTTP server port | `3000` |

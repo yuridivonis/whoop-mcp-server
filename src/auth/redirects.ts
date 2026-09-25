@@ -4,13 +4,13 @@
  * SECURITY: anyone can register a client, so without this check a phishing link to the
  * real sign-in page could send the owner's code to an attacker's website. Codes that land
  * on the internet must go to an allowlisted web client (MCP_ALLOWED_REDIRECT_HOSTS, with
- * Claude and ChatGPT by default). Loopback addresses and app schemes (cursor://,
- * vscode://) only reach apps on the owner's own device, so they are always allowed.
+ * Claude and ChatGPT by default). Loopback addresses reach only the owner's own device.
+ * App links are allowed only for known desktop MCP clients: other schemes can be handled
+ * by apps that fetch the address over the network (webcal://, for one).
  */
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
-// Schemes that are not an app on the device: web pages, files and script URLs.
-const NON_APP_SCHEMES = new Set(['http:', 'https:', 'ws:', 'wss:', 'ftp:', 'file:', 'data:', 'blob:', 'about:', 'javascript:', 'vbscript:']);
+const DESKTOP_APP_SCHEMES = new Set(['cursor:', 'vscode:', 'vscode-insiders:', 'windsurf:']);
 
 function parse(uri: string): URL | null {
 	try {
@@ -25,7 +25,7 @@ export function redirectAllowed(uri: string, allowedHosts: readonly string[]): b
 	if (!url) return false;
 	if (url.protocol === 'https:') return allowedHosts.includes(url.hostname);
 	if (url.protocol === 'http:') return LOOPBACK_HOSTS.has(url.hostname);
-	return !NON_APP_SCHEMES.has(url.protocol);
+	return DESKTOP_APP_SCHEMES.has(url.protocol);
 }
 
 /** How the sign-in page names the place the owner returns to after signing in. */

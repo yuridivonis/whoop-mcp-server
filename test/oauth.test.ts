@@ -450,20 +450,44 @@ describe('sign-in state', () => {
 		});
 	});
 
-	it('does not accept sign-ins from a server still running with the old password', async () => {
+	it('shuts out a server still running with the old password, including its own sign-ins', async () => {
 		await withDatabaseFile(async dbPath => {
 			const stale = await startTestServer({ dbPath });
-			const current = await startTestServer({ dbPath, password: 'a completely new password' });
 			try {
-				// The stale server still accepts the old password and issues tokens into the shared database...
 				const { clientId, tokens } = await signIn(stale.baseUrl);
-				// ...but they carry the old generation, so the current server refuses them.
-				assert.equal((await mcpRequest(current.baseUrl, tokens.access_token, INITIALIZE)).status, 401);
-				const refresh = await postToken(current.baseUrl, { grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: clientId });
-				assert.equal(refresh.status, 400);
+				assert.equal((await mcpRequest(stale.baseUrl, tokens.access_token, INITIALIZE)).status, 200);
+				const oldGeneration = (JSON.parse(stale.db.getSetting('mcp_auth_password') ?? '{}') as { generation: string }).generation;
+
+				// A restart with a new password happens while the old server is still up.
+				const current = await startTestServer({ dbPath, password: 'a completely new password' });
+				try {
+					for (const server of [stale, current]) {
+						assert.equal((await mcpRequest(server.baseUrl, tokens.access_token, INITIALIZE)).status, 401);
+						const refresh = await postToken(server.baseUrl, { grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: clientId });
+						assert.equal(refresh.status, 400);
+					}
+					// The old server won't sign anyone in with the old password any more.
+					const retry = await submitPassword(stale.baseUrl, authorizeParams(clientId, pkcePair().challenge), PASSWORD);
+					assert.equal(retry.status, 503);
+					assert.equal(retry.headers.get('location'), null);
+
+					// A token the old server finished minting just as the password changed.
+					const raced = 'token-minted-during-the-password-change';
+					stale.db.saveOAuthToken({
+						token_hash: createHash('sha256').update(raced).digest('hex'),
+						family_id: 'raced-family',
+						generation: oldGeneration,
+						kind: 'access',
+						client_id: clientId,
+						scopes: '',
+						expires_at: Date.now() + 3_600_000,
+					});
+					assert.equal((await mcpRequest(stale.baseUrl, raced, INITIALIZE)).status, 401);
+				} finally {
+					await current.close();
+				}
 			} finally {
 				await stale.close();
-				await current.close();
 			}
 		});
 	});
@@ -505,8 +529,15 @@ describe('where sign-in codes may be sent', () => {
 		await server.close();
 	});
 
-	it('refuses to register a web client that is not on the allowlist', async () => {
-		for (const uri of ['https://attacker.example/callback', 'http://attacker.example/callback']) {
+	it('refuses to register a client with no allowed address', async () => {
+		const notAllowed = [
+			'https://attacker.example/callback',
+			'http://attacker.example/callback',
+			// App links whose handlers fetch the address over the network.
+			'webcal://attacker.example/callback',
+			'web+capture://attacker.example/callback',
+		];
+		for (const uri of notAllowed) {
 			const res = await registrationRequest(server.baseUrl, [uri]);
 			assert.equal(res.status, 400, uri);
 			const body = await res.json() as { error: string; error_description: string };
@@ -528,6 +559,20 @@ describe('where sign-in codes may be sent', () => {
 		for (const uri of allowed) {
 			assert.equal((await registrationRequest(server.baseUrl, [uri])).status, 201, uri);
 		}
+	});
+
+	it('registers a client with a spare address, but never signs in through the spare', async () => {
+		const res = await registrationRequest(server.baseUrl, ['https://attacker.example/callback', CLIENT_REDIRECT_URI]);
+		assert.equal(res.status, 201);
+		const { client_id: clientId } = await res.json() as { client_id: string };
+
+		const params = authorizeParams(clientId, pkcePair().challenge, { redirect_uri: 'https://attacker.example/callback' });
+		const attempt = await submitPassword(server.baseUrl, params, PASSWORD);
+		assert.equal(attempt.status, 400);
+		assert.equal(attempt.headers.get('location'), null);
+
+		const local = await submitPassword(server.baseUrl, authorizeParams(clientId, pkcePair().challenge), PASSWORD);
+		assert.equal(local.status, 302);
 	});
 
 	it('refuses to sign in a client that was registered before the allowlist', async () => {
@@ -560,12 +605,37 @@ describe('where sign-in codes may be sent', () => {
 });
 
 describe('sign-in log', () => {
-	it('records each successful sign-in with the app and where it returned', async () => {
+	it('records each successful sign-in with the app, its client id and where it returned', async () => {
 		const logged: string[] = [];
 		const server = await startTestServer({ log: line => logged.push(line) });
 		try {
-			await signIn(server.baseUrl);
-			assert.deepEqual(logged, ['Signed in: Test Client, returning to an app on this computer']);
+			const { clientId } = await signIn(server.baseUrl);
+			assert.deepEqual(logged, [`Signed in: "Test Client" (client ${clientId}), returning to an app on this computer`]);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('cannot be forged with line breaks or terminal codes in an app name', async () => {
+		const logged: string[] = [];
+		const server = await startTestServer({ log: line => logged.push(line) });
+		try {
+			const res = await fetch(`${server.baseUrl}/register`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					client_name: 'Claude\nSigned in: "Claude" (client 1), returning to claude.ai\u001b[2K',
+					redirect_uris: [CLIENT_REDIRECT_URI],
+					token_endpoint_auth_method: 'none',
+				}),
+			});
+			const { client_id: clientId } = await res.json() as { client_id: string };
+			const { challenge } = pkcePair();
+			await submitPassword(server.baseUrl, authorizeParams(clientId, challenge), PASSWORD);
+
+			assert.equal(logged.length, 1);
+			assert.doesNotMatch(logged[0], /[\u0000-\u001f]/);
+			assert.match(logged[0], new RegExp(`\\(client ${clientId}\\)`));
 		} finally {
 			await server.close();
 		}

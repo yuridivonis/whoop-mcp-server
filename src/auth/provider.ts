@@ -60,6 +60,11 @@ function readPasswordRecord(value: string | undefined): PasswordRecord | null {
 	return null;
 }
 
+/** Strips control characters (line breaks, terminal escapes) so a client name can't forge log lines. */
+function printable(value: string): string {
+	return value.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').slice(0, 80);
+}
+
 function fingerprint(password: string, salt: string): Buffer {
 	return scryptSync(password, Buffer.from(salt, 'hex'), 32);
 }
@@ -131,6 +136,15 @@ export class McpAuthProvider implements OAuthServerProvider {
 		this.log = options.log;
 	}
 
+	/**
+	 * Whether this server's password is still the current one. A server started with an
+	 * older password (before a restart replaced it) must not issue or accept anything, so
+	 * this reads the stored record rather than trusting the generation cached at startup.
+	 */
+	private isCurrent(): boolean {
+		return readPasswordRecord(this.db.getSetting(PASSWORD_RECORD))?.generation === this.generation;
+	}
+
 	get clientsStore(): OAuthRegisteredClientsStore {
 		return {
 			getClient: clientId => {
@@ -138,13 +152,13 @@ export class McpAuthProvider implements OAuthServerProvider {
 				return info ? JSON.parse(info) as OAuthClientInformationFull : undefined;
 			},
 			registerClient: client => {
-				for (const uri of client.redirect_uris) {
-					if (!redirectAllowed(uri, this.allowedRedirectHosts)) {
-						const host = redirectHost(uri);
-						throw new InvalidClientMetadataError(
-							`Redirect address ${host} is not allowed. To use this client, add ${host} to MCP_ALLOWED_REDIRECT_HOSTS.`,
-						);
-					}
+				// At least one address must be allowed. Some clients register a spare address
+				// they don't use, so each sign-in is checked against the address it actually uses.
+				if (!client.redirect_uris.some(uri => redirectAllowed(uri, this.allowedRedirectHosts))) {
+					const host = redirectHost(client.redirect_uris[0] ?? '');
+					throw new InvalidClientMetadataError(
+						`Redirect address ${host} is not allowed. To use this client, add ${host} to MCP_ALLOWED_REDIRECT_HOSTS.`,
+					);
 				}
 				// The SDK's registration handler normally assigns the id; the defaults are a fallback.
 				const full: OAuthClientInformationFull = {
@@ -164,6 +178,10 @@ export class McpAuthProvider implements OAuthServerProvider {
 		// Checked here as well as at registration, so clients registered before the allowlist are covered.
 		if (!redirectAllowed(params.redirectUri, this.allowedRedirectHosts)) {
 			sendSignInError(res, `This app wants to send you to ${redirectHost(params.redirectUri)}, which this server doesn't allow. Nothing was shared.`);
+			return;
+		}
+		if (!this.isCurrent()) {
+			sendSignInError(res, "This server's password was just changed and it is restarting. Try again in a minute.", 503);
 			return;
 		}
 		this.checkResource(params.resource);
@@ -197,13 +215,13 @@ export class McpAuthProvider implements OAuthServerProvider {
 		if (params.state) {
 			redirectUrl.searchParams.set('state', params.state);
 		}
-		this.log(`Signed in: ${client.client_name ?? client.client_id}, returning to ${destination}`);
+		this.log(`Signed in: "${printable(client.client_name ?? 'unnamed app')}" (client ${printable(client.client_id)}), returning to ${destination}`);
 		res.redirect(302, redirectUrl.href);
 	}
 
 	async challengeForAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string): Promise<string> {
 		const stored = this.db.getOAuthCode(hashSecret(authorizationCode));
-		if (!stored || stored.client_id !== client.client_id || stored.generation !== this.generation) {
+		if (!stored || stored.client_id !== client.client_id || stored.generation !== this.generation || !this.isCurrent()) {
 			throw new InvalidGrantError('Invalid authorization code');
 		}
 		if (stored.consumed_at !== null) {
@@ -232,7 +250,7 @@ export class McpAuthProvider implements OAuthServerProvider {
 			if (used?.generation === this.generation) this.db.deleteOAuthFamily(used.family_id);
 			throw new InvalidGrantError('Invalid authorization code');
 		}
-		if (stored.client_id !== client.client_id || stored.generation !== this.generation) {
+		if (stored.client_id !== client.client_id || stored.generation !== this.generation || !this.isCurrent()) {
 			throw new InvalidGrantError('Invalid authorization code');
 		}
 		if (stored.expires_at < Date.now()) {
@@ -252,6 +270,9 @@ export class McpAuthProvider implements OAuthServerProvider {
 	): Promise<OAuthTokens> {
 		this.checkResource(resource);
 
+		if (!this.isCurrent()) {
+			throw new InvalidGrantError('Invalid refresh token');
+		}
 		const tokenHash = hashSecret(refreshToken);
 		const stored = this.db.consumeRefreshToken(tokenHash, client.client_id, this.generation, Date.now());
 		if (!stored) {
@@ -270,7 +291,7 @@ export class McpAuthProvider implements OAuthServerProvider {
 
 	async verifyAccessToken(token: string): Promise<AuthInfo> {
 		const stored = this.db.getOAuthToken(hashSecret(token), 'access');
-		if (!stored || stored.generation !== this.generation || stored.expires_at < Date.now()) {
+		if (!stored || stored.generation !== this.generation || stored.expires_at < Date.now() || !this.isCurrent()) {
 			throw new InvalidTokenError('Invalid or expired access token');
 		}
 		return {

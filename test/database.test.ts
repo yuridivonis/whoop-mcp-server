@@ -1,5 +1,10 @@
 import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import Database from 'better-sqlite3';
+import { WhoopDatabase } from '../src/database.js';
 import { memoryDb } from './helpers.js';
 import type { WhoopWorkout } from '../src/types.js';
 
@@ -35,11 +40,38 @@ function v2Workout(overrides: Partial<WhoopWorkout> = {}): WhoopWorkout {
 }
 
 describe('stored workouts', () => {
+	it('keep the sport name and timezone from API v2', t => {
+		const db = memoryDb(t);
+		db.upsertWorkouts([v2Workout({ sport_name: 'functional-fitness' })]);
+		const [stored] = db.getWorkouts('2026-09-01');
+		assert.equal(stored.sport_name, 'functional-fitness');
+		assert.equal(stored.timezone_offset, '-05:00');
+	});
+
+	it('are added to a database created by 1.0.0, which lacks the newer columns', t => {
+		const dir = mkdtempSync(join(tmpdir(), 'whoop-mcp-test-'));
+		t.after(() => rmSync(dir, { recursive: true, force: true }));
+		const path = join(dir, 'whoop.db');
+		const old = new Database(path);
+		old.exec(`CREATE TABLE workouts (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, sport_id INTEGER NOT NULL,
+			start_time TEXT NOT NULL, end_time TEXT NOT NULL, score_state TEXT NOT NULL, strain REAL, avg_hr INTEGER,
+			max_hr INTEGER, kilojoule REAL, zone_zero_milli INTEGER, zone_one_milli INTEGER, zone_two_milli INTEGER,
+			zone_three_milli INTEGER, zone_four_milli INTEGER, zone_five_milli INTEGER, synced_at TEXT DEFAULT CURRENT_TIMESTAMP);
+			CREATE TABLE cycles (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, start_time TEXT NOT NULL, end_time TEXT,
+			score_state TEXT NOT NULL, strain REAL, kilojoule REAL, avg_hr INTEGER, max_hr INTEGER, synced_at TEXT DEFAULT CURRENT_TIMESTAMP);`);
+		old.close();
+
+		const db = new WhoopDatabase(path);
+		t.after(() => db.close());
+		db.upsertWorkouts([v2Workout({ sport_name: 'running' })]);
+		assert.equal(db.getWorkouts('2026-09-01')[0].sport_name, 'running');
+	});
+
 	it('keep the heart-rate zones from a v2 workout', t => {
 		const db = memoryDb(t);
 		db.upsertWorkouts([v2Workout()]);
 
-		const [stored] = db.getWorkoutsByDateRange('2026-09-01', '2026-09-30');
+		const [stored] = db.getWorkouts('2026-09-01');
 		assert.equal(stored.zone_zero_milli, 300000);
 		assert.equal(stored.zone_five_milli, 300000);
 		assert.equal(stored.strain, 8.2463);
@@ -51,7 +83,7 @@ describe('stored workouts', () => {
 		delete workout.score?.zone_durations;
 		db.upsertWorkouts([workout]);
 
-		const [stored] = db.getWorkoutsByDateRange('2026-09-01', '2026-09-30');
+		const [stored] = db.getWorkouts('2026-09-01');
 		assert.equal(stored.zone_zero_milli, null);
 		assert.equal(stored.strain, 8.2463);
 	});

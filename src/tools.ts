@@ -5,6 +5,7 @@ import { WhoopAuthError, type WhoopClient } from './whoop-client.js';
 import type { WhoopDatabase } from './database.js';
 import type { WhoopSync } from './sync.js';
 import type { PendingAuthStates } from './auth-states.js';
+import { localDate } from './days.js';
 
 export const SERVER_VERSION = '1.1.0';
 
@@ -30,13 +31,25 @@ function formatDuration(millis: number | null): string {
 	return `${hours}h ${minutes}m`;
 }
 
-function formatDate(isoString: string): string {
-	return new Date(isoString).toLocaleDateString('en-US', {
+/** Formats a local day (YYYY-MM-DD). In UTC, so the server's own timezone can't shift it. */
+function formatDate(day: string): string {
+	return new Date(`${day.slice(0, 10)}T00:00:00Z`).toLocaleDateString('en-US', {
 		weekday: 'short',
 		month: 'short',
 		day: 'numeric',
+		timeZone: 'UTC',
 	});
 }
+
+/** "functional-fitness" → "Functional fitness". */
+function sportName(name: string | null, sportId: number): string {
+	if (!name) return `Activity ${sportId}`;
+	const words = name.replace(/[-_]+/g, ' ').trim();
+	return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+// Only the data the tools use. `offline` keeps the connection alive with refresh tokens.
+const WHOOP_SCOPES = ['read:cycles', 'read:recovery', 'read:sleep', 'read:workout', 'offline'];
 
 function getRecoveryZone(score: number): string {
 	if (score >= 67) return 'Green (Well Recovered)';
@@ -118,6 +131,15 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri }: T
 				},
 			},
 			{
+				name: 'get_workouts',
+				description: 'Get recent workouts with activity, duration, strain, heart rate, and calories.',
+				inputSchema: {
+					type: 'object',
+					properties: { days: { type: 'number', description: 'Number of days to include (default: 14, max: 90)' } },
+					required: [],
+				},
+			},
+			{
 				name: 'sync_data',
 				description: 'Manually trigger a data sync from Whoop.',
 				inputSchema: {
@@ -140,7 +162,7 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri }: T
 
 		try {
 			let note = '';
-			const dataTools = ['get_today', 'get_recovery_trends', 'get_sleep_analysis', 'get_strain_history'];
+			const dataTools = ['get_today', 'get_recovery_trends', 'get_sleep_analysis', 'get_strain_history', 'get_workouts'];
 			if (dataTools.includes(name)) {
 				if (!db.getTokens()) {
 					return text(NOT_AUTHENTICATED);
@@ -266,6 +288,36 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri }: T
 					return text(response);
 				}
 
+				case 'get_workouts': {
+					const days = validateDays(typedArgs.days);
+					const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+					const workouts = db.getWorkouts(since);
+
+					if (workouts.length === 0) {
+						return text(`${note}No workouts recorded in the last ${days} days.`);
+					}
+
+					let response = `${note}# Workouts (Last ${days} Days)\n\n`;
+					response += '| Date | Activity | Duration | Strain | Avg HR | Max HR | Calories |\n|------|----------|----------|--------|--------|--------|----------|\n';
+
+					let totalMillis = 0;
+					let hardZoneMillis = 0;
+					const strains: number[] = [];
+					for (const w of workouts) {
+						const duration = Date.parse(w.end_time) - Date.parse(w.start_time);
+						totalMillis += duration;
+						hardZoneMillis += (w.zone_four_milli ?? 0) + (w.zone_five_milli ?? 0);
+						if (w.strain !== null) strains.push(w.strain);
+						const calories = w.kilojoule !== null ? `${Math.round(w.kilojoule / 4.184)} kcal` : 'N/A';
+						response += `| ${formatDate(localDate(w.start_time, w.timezone_offset))} | ${sportName(w.sport_name, w.sport_id)} | ${formatDuration(duration)} | ${w.strain?.toFixed(1) ?? 'N/A'} | ${w.avg_hr ?? 'N/A'} bpm | ${w.max_hr ?? 'N/A'} bpm | ${calories} |\n`;
+					}
+
+					const avgStrain = strains.length > 0 ? (strains.reduce((sum, value) => sum + value, 0) / strains.length).toFixed(1) : 'N/A';
+					response += `\n## Totals\n- **Workouts**: ${workouts.length}\n- **Time**: ${formatDuration(totalMillis)}\n- **Average Strain**: ${avgStrain}\n- **Time in heart-rate zones 4–5**: ${hardZoneMillis > 0 ? formatDuration(hardZoneMillis) : '0h 0m'}\n`;
+
+					return text(response);
+				}
+
 				case 'sync_data': {
 					if (!db.getTokens()) {
 						return text(NOT_AUTHENTICATED);
@@ -288,8 +340,7 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri }: T
 				}
 
 				case 'get_auth_url': {
-					const scopes = ['read:profile', 'read:body_measurement', 'read:cycles', 'read:recovery', 'read:sleep', 'read:workout', 'offline'];
-					const url = client.getAuthorizationUrl(scopes, authStates.issue());
+					const url = client.getAuthorizationUrl(WHOOP_SCOPES, authStates.issue());
 					return text(
 						`To authorize with Whoop:\n\n1. Visit: ${url}\n2. Log in and authorize\n3. You'll be redirected back automatically\n\n` +
 							`The link works once and expires in 10 minutes.\n\nRedirect URI: ${redirectUri}`

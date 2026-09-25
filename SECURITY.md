@@ -26,6 +26,7 @@ Include what you found, how to reproduce it, and what an attacker could do with 
 - **Password changes:** every code and token is tied to the password it was issued under, so changing `MCP_AUTH_PASSWORD` signs every client out. A server still running with the old password stops accepting sign-ins and tokens too.
 - **Password guessing:** failed sign-ins are limited to 10 per address every 15 minutes, and 50 per hour in total. Client addresses come from proxies you trust (`TRUST_PROXY`: one hop on Railway, none elsewhere), so they can't be forged.
 - **Whoop authorization:** each link from `get_auth_url` carries a one-time `state` that expires after 10 minutes.
+- **Least data:** the server asks Whoop only for recovery, cycles, sleep, and workouts.
 - **Stored Whoop tokens:** encrypted with AES-256-GCM, using a key derived from `ENCRYPTION_SECRET` (or `WHOOP_CLIENT_SECRET` if that isn't set).
 - **Public endpoints:** `/health` only reports that the server is up, and says nothing about your data or your Whoop connection.
 

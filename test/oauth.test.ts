@@ -564,7 +564,14 @@ describe('where sign-in codes may be sent', () => {
 	it('registers a client with a spare address, but never signs in through the spare', async () => {
 		const res = await registrationRequest(server.baseUrl, ['https://attacker.example/callback', CLIENT_REDIRECT_URI]);
 		assert.equal(res.status, 201);
-		const { client_id: clientId } = await res.json() as { client_id: string };
+		const { client_id: clientId, redirect_uris: registered } = await res.json() as { client_id: string; redirect_uris: string[] };
+		assert.deepEqual(registered, [CLIENT_REDIRECT_URI], 'only the allowed address is registered');
+
+		// A malformed request can't bounce the browser to the spare either (no open redirect).
+		const malformed = authorizeParams(clientId, pkcePair().challenge, { redirect_uri: 'https://attacker.example/callback', response_type: 'invalid' });
+		const bounce = await fetch(`${server.baseUrl}/authorize?${malformed}`, { redirect: 'manual' });
+		assert.equal(bounce.status, 400);
+		assert.equal(bounce.headers.get('location'), null);
 
 		const params = authorizeParams(clientId, pkcePair().challenge, { redirect_uri: 'https://attacker.example/callback' });
 		const attempt = await submitPassword(server.baseUrl, params, PASSWORD);
@@ -581,9 +588,15 @@ describe('where sign-in codes may be sent', () => {
 		server.db.saveOAuthClient(clientId, JSON.stringify({ client_id: clientId, redirect_uris: [redirectUri], token_endpoint_auth_method: 'none' }));
 		const params = authorizeParams(clientId, pkcePair().challenge, { redirect_uri: redirectUri });
 
-		const page = await fetch(`${server.baseUrl}/authorize?${params}`);
+		const page = await fetch(`${server.baseUrl}/authorize?${params}`, { redirect: 'manual' });
 		assert.equal(page.status, 400);
-		assert.match(await page.text(), /attacker\.example/);
+		assert.equal(page.headers.get('location'), null);
+
+		const malformed = new URLSearchParams(params);
+		malformed.set('response_type', 'invalid');
+		const bounce = await fetch(`${server.baseUrl}/authorize?${malformed}`, { redirect: 'manual' });
+		assert.equal(bounce.status, 400);
+		assert.equal(bounce.headers.get('location'), null);
 
 		const res = await submitPassword(server.baseUrl, params, PASSWORD);
 		assert.equal(res.status, 400);
@@ -610,13 +623,13 @@ describe('sign-in log', () => {
 		const server = await startTestServer({ log: line => logged.push(line) });
 		try {
 			const { clientId } = await signIn(server.baseUrl);
-			assert.deepEqual(logged, [`Signed in: "Test Client" (client ${clientId}), returning to an app on this computer`]);
+			assert.deepEqual(logged, [`Signed in: client ${clientId}, returning to an app on this computer, app "Test Client"`]);
 		} finally {
 			await server.close();
 		}
 	});
 
-	it('cannot be forged with line breaks or terminal codes in an app name', async () => {
+	it('cannot be forged with line breaks, quotes, terminal codes or right-to-left marks in an app name', async () => {
 		const logged: string[] = [];
 		const server = await startTestServer({ log: line => logged.push(line) });
 		try {
@@ -624,7 +637,7 @@ describe('sign-in log', () => {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					client_name: 'Claude\nSigned in: "Claude" (client 1), returning to claude.ai\u001b[2K',
+					client_name: 'Claude", returning to claude.ai\nSigned in: client 1\u001b[2K\u202e',
 					redirect_uris: [CLIENT_REDIRECT_URI],
 					token_endpoint_auth_method: 'none',
 				}),
@@ -634,8 +647,10 @@ describe('sign-in log', () => {
 			await submitPassword(server.baseUrl, authorizeParams(clientId, challenge), PASSWORD);
 
 			assert.equal(logged.length, 1);
-			assert.doesNotMatch(logged[0], /[\u0000-\u001f]/);
-			assert.match(logged[0], new RegExp(`\\(client ${clientId}\\)`));
+			assert.doesNotMatch(logged[0], /[\u0000-\u001f\u202e]/);
+			// The server's own fields come first and can't be displaced by the name.
+			assert.ok(logged[0].startsWith(`Signed in: client ${clientId}, returning to an app on this computer, app "`), logged[0]);
+			assert.match(logged[0], /app "Claude\\", returning/, 'the quote in the name is escaped');
 		} finally {
 			await server.close();
 		}

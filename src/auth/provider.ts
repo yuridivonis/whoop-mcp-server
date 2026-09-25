@@ -60,9 +60,12 @@ function readPasswordRecord(value: string | undefined): PasswordRecord | null {
 	return null;
 }
 
-/** Strips control characters (line breaks, terminal escapes) so a client name can't forge log lines. */
-function printable(value: string): string {
-	return value.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').slice(0, 80);
+/**
+ * A client name made safe for the log: control and bidirectional-text characters removed,
+ * then quoted, so a name can't add lines, fake fields, or visually reorder the line.
+ */
+function quotedName(value: string): string {
+	return JSON.stringify(value.replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]/g, ' ').slice(0, 80));
 }
 
 function fingerprint(password: string, salt: string): Buffer {
@@ -136,6 +139,10 @@ export class McpAuthProvider implements OAuthServerProvider {
 		this.log = options.log;
 	}
 
+	private withAllowedRedirects(client: OAuthClientInformationFull): OAuthClientInformationFull {
+		return { ...client, redirect_uris: client.redirect_uris.filter(uri => redirectAllowed(uri, this.allowedRedirectHosts)) };
+	}
+
 	/**
 	 * Whether this server's password is still the current one. A server started with an
 	 * older password (before a restart replaced it) must not issue or accept anything, so
@@ -147,9 +154,11 @@ export class McpAuthProvider implements OAuthServerProvider {
 
 	get clientsStore(): OAuthRegisteredClientsStore {
 		return {
+			// Registrations only ever expose allowed redirect addresses, so the SDK rejects any
+			// other address outright instead of redirecting an error to it.
 			getClient: clientId => {
 				const info = this.db.getOAuthClient(clientId);
-				return info ? JSON.parse(info) as OAuthClientInformationFull : undefined;
+				return info ? this.withAllowedRedirects(JSON.parse(info) as OAuthClientInformationFull) : undefined;
 			},
 			registerClient: client => {
 				// At least one address must be allowed. Some clients register a spare address
@@ -161,11 +170,13 @@ export class McpAuthProvider implements OAuthServerProvider {
 					);
 				}
 				// The SDK's registration handler normally assigns the id; the defaults are a fallback.
-				const full: OAuthClientInformationFull = {
+				// Addresses that aren't allowed are dropped (RFC 7591 lets the server change what it
+				// registers; the response tells the client what it got).
+				const full = this.withAllowedRedirects({
 					client_id: randomUUID(),
 					client_id_issued_at: Math.floor(Date.now() / 1000),
 					...client,
-				};
+				});
 				this.db.saveOAuthClient(full.client_id, JSON.stringify(full));
 				return full;
 			},
@@ -215,7 +226,8 @@ export class McpAuthProvider implements OAuthServerProvider {
 		if (params.state) {
 			redirectUrl.searchParams.set('state', params.state);
 		}
-		this.log(`Signed in: "${printable(client.client_name ?? 'unnamed app')}" (client ${printable(client.client_id)}), returning to ${destination}`);
+		// Server-controlled fields first; the client-chosen name last, quoted.
+		this.log(`Signed in: client ${client.client_id}, returning to ${destination}, app ${quotedName(client.client_name ?? 'unnamed')}`);
 		res.redirect(302, redirectUrl.href);
 	}
 

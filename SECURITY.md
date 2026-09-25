@@ -34,7 +34,7 @@ Include what you found, how to reproduce it, and what an attacker could do with 
 - **Stay up to date:** keep your fork updated (GitHub's **Sync fork** button), and watch this repository's releases (**Watch → Custom → Releases**) to hear about security fixes.
 - **Secrets:** use a long random `MCP_AUTH_PASSWORD` and set `ENCRYPTION_SECRET`.
 - **Signing everyone out:** change `MCP_AUTH_PASSWORD` and redeploy. Every existing sign-in stops working, so your MCP clients will ask you to sign in again. Do this if you think your password may have leaked.
-- **Watching for strangers:** every successful sign-in is logged as `Signed in: "<app>" (client <id>), returning to <destination>`. Check your server logs for any you don't recognize.
+- **Watching for strangers:** every successful sign-in is logged as `Signed in: client <id>, returning to <destination>, app "<name>"`. Check your server logs for any you don't recognize.
 - **If your data was accessed:** you registered your own Whoop developer app, so you are the developer under WHOOP's [API Terms of Use](https://developer.whoop.com/api-terms-of-use/). They require you to notify WHOOP within 48 hours of discovering a security incident (§2.4).
 
 Published advisories are listed under [Security → Advisories](https://github.com/yuridivonis/whoop-mcp-server/security/advisories).

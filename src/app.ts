@@ -7,7 +7,7 @@ import type { Config } from './config.js';
 import { McpAuthProvider, signInGeneration } from './auth/provider.js';
 import { createMcpServer, type ToolDeps } from './tools.js';
 
-export interface AppDeps extends Omit<ToolDeps, 'redirectUri'> {
+export interface AppDeps extends Omit<ToolDeps, 'redirectUri' | 'mode'> {
 	config: Config;
 	/** Where sign-in events go; the server log by default. */
 	log?: (line: string) => void;
@@ -125,7 +125,7 @@ export function createApp({ config, db, client, sync, authStates, log = logToStd
 	// Stateless Streamable HTTP: every request gets its own server and transport, so there
 	// are no sessions to leak, expire or lose on redeploy, and nothing is shared between clients.
 	app.post('/mcp', requireAuth, acceptEventStream, async (req: Request, res: Response) => {
-		const server = createMcpServer({ db, client, sync, authStates, redirectUri: config.redirectUri });
+		const server = createMcpServer({ db, client, sync, authStates, redirectUri: config.redirectUri, mode: 'http' });
 		const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 		res.on('close', () => {
 			transport.close().catch(() => {});

@@ -79,6 +79,8 @@ export interface WhoopWorkout {
 	end: string;
 	timezone_offset: string;
 	sport_id: number;
+	/** API v2, e.g. "running". */
+	sport_name?: string;
 	score_state: 'SCORED' | 'PENDING_SCORE' | 'UNSCORABLE';
 	score?: {
 		strain: number;
@@ -113,6 +115,7 @@ export interface DbCycle {
 	kilojoule: number | null;
 	avg_hr: number | null;
 	max_hr: number | null;
+	timezone_offset: string | null;
 	synced_at: string;
 }
 
@@ -150,6 +153,7 @@ export interface DbSleep {
 	sleep_needed_baseline_milli: number | null;
 	sleep_needed_debt_milli: number | null;
 	sleep_needed_strain_milli: number | null;
+	timezone_offset: string | null;
 	synced_at: string;
 }
 
@@ -157,6 +161,8 @@ export interface DbWorkout {
 	id: string;
 	user_id: number;
 	sport_id: number;
+	sport_name: string | null;
+	timezone_offset: string | null;
 	start_time: string;
 	end_time: string;
 	score_state: string;

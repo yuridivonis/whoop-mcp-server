@@ -14,7 +14,8 @@ Built on the [Whoop Developer API v2](https://developer.whoop.com/docs/introduct
 - **Recovery**: daily recovery score, HRV, resting heart rate, SpO2, skin temperature
 - **Sleep**: duration, stages, efficiency, performance, respiratory rate
 - **Strain**: daily strain score and calories burned
-- **Auto-sync**: before answering, the server pulls new data from Whoop if the last sync is more than an hour old, and keeps 90 days locally for trends
+- **Workouts**: activity, local start time, duration, strain, heart rate, calories, and time in heart-rate zones 4–5
+- **Auto-sync**: before answering, the server pulls new data from Whoop if the last sync is more than an hour old, and keeps everything it has synced (at least the last 90 days) for trends
 - **Private by default**: Claude signs in with a password you choose (OAuth 2.1), so nobody else can read your data
 
 ## MCP Tools
@@ -25,6 +26,7 @@ Built on the [Whoop Developer API v2](https://developer.whoop.com/docs/introduct
 | `get_recovery_trends` | Recovery patterns over time with HRV/RHR |
 | `get_sleep_analysis` | Sleep quality trends and stage breakdowns |
 | `get_strain_history` | Daily strain and calorie trends |
+| `get_workouts` | Recent workouts with activity, duration, strain, heart rate, and calories |
 | `sync_data` | Manually trigger a data sync (`full: true` pulls the last 90 days) |
 | `get_auth_url` | Link to connect your Whoop account (works once, expires in 10 minutes) |
 
@@ -32,10 +34,13 @@ Built on the [Whoop Developer API v2](https://developer.whoop.com/docs/introduct
 
 ### 1. Create a Whoop Developer App
 
-1. Go to [developer.whoop.com](https://developer.whoop.com)
-2. Create a new application
-3. Note your **Client ID** and **Client Secret**
-4. Set the redirect URI to your server's callback URL (e.g., `https://your-app.up.railway.app/callback`)
+1. In the [Whoop Developer Dashboard](https://developer-dashboard.whoop.com), create an app and fill in:
+   - **Contacts**: your email. Only Whoop sees it.
+   - **Privacy Policy**: the [PRIVACY.md](PRIVACY.md) in your fork, e.g. `https://github.com/<you>/whoop-mcp-server/blob/main/PRIVACY.md`. People see this link when they approve the app.
+   - **Redirect URL**: your server's callback, e.g. `https://your-app.up.railway.app/callback`
+   - **Scopes**: `read:recovery`, `read:cycles`, `read:sleep`, and `read:workout`. The server doesn't use the others. The login also asks for `offline`, which lets the server renew its Whoop access without you logging in again; the dashboard doesn't list it.
+   - **Webhooks**: leave empty.
+2. Note your **Client ID** and **Client Secret**.
 
 ### 2. Deploy to Railway
 
@@ -61,7 +66,12 @@ Built on the [Whoop Developer API v2](https://developer.whoop.com/docs/introduct
 
 Claude stays signed in across redeploys. Anyone without the password gets `401 Unauthorized` from `/mcp`.
 
-**Using another MCP client?** ChatGPT and desktop apps that sign in through your own computer, such as Claude Code, Cursor, VS Code, or Windsurf, can sign in the same way. Other web-based clients need their host name in `MCP_ALLOWED_REDIRECT_HOSTS` first.
+**Other MCP clients**
+
+- **Claude's desktop and mobile apps** use the connectors you add on Claude.ai.
+- **Claude Code**: run `claude mcp add --transport http whoop https://your-app.up.railway.app/mcp`, then `/mcp` in Claude Code to sign in.
+- **ChatGPT** and desktop apps such as Cursor, VS Code, or Windsurf sign in the same way with your `/mcp` address.
+- Other web-based clients need their host name in `MCP_ALLOWED_REDIRECT_HOSTS` first.
 
 ### 4. Connect your Whoop account
 
@@ -78,7 +88,8 @@ Claude stays signed in across redeploys. Anyone without the password gets `401 U
 3. Redeploy.
 4. In Claude.ai → Settings → Connectors, remove the Whoop connector and add it again with the same URL. Claude shows the sign-in page once.
 5. If a tool says your Whoop authorization expired, run `get_auth_url` once to reconnect.
-6. Ask Claude to run `sync_data` with `full: true` once. 1.0.0 never stored workouts (the sync failed at that step whenever a scored workout was in range); this backfills the last 90 days.
+6. The first sync after the upgrade pulls the last 90 days again. That backfills workouts (1.0.0 never stored them) and the timezone information that dates each day correctly. It runs the next time Claude uses a tool. Asking Claude to run `sync_data` with `full: true` does the same by hand.
+7. Optional: in your Whoop app, untick `read:profile` and `read:body_measurement`. 1.1.0 no longer uses them.
 
 If your 1.0.0 server worked with Claude on a public URL, assume your data could have been read. As a precaution, rotate your client secret in the Whoop developer dashboard, update `WHOOP_CLIENT_SECRET`, and run `get_auth_url` once afterwards. Unless `ENCRYPTION_SECRET` is set, the stored Whoop tokens were encrypted with the old client secret. The server starts anyway and treats Whoop as disconnected until you reconnect.
 
@@ -89,14 +100,15 @@ If your 1.0.0 server worked with Claude on a public URL, assume your data could 
 - Sign-in codes only go to Claude, ChatGPT, desktop apps on your own computer, or web clients you add with `MCP_ALLOWED_REDIRECT_HOSTS`. The sign-in page shows where you'll return: only sign in if you started the connection yourself.
 - Whoop tokens are encrypted at rest (AES-256-GCM). Your health data stays in your server's database and is only sent to the client you signed in.
 - Changing `MCP_AUTH_PASSWORD` signs every client out.
+- The server asks Whoop only for recovery, cycles, sleep, and workouts.
 
-See [SECURITY.md](SECURITY.md) for the full security model and how to report a vulnerability privately.
+See [SECURITY.md](SECURITY.md) for the full security model and how to report a vulnerability privately, and [PRIVACY.md](PRIVACY.md) for what a deployment stores and shares.
 
 ## Using the Whoop API
 
 When you deploy this server, you register your own Whoop developer app, so you are the developer under WHOOP's [API Terms of Use](https://developer.whoop.com/api-terms-of-use/) and responsible for following them. Among other things, unless the owner of the WHOOP data or applicable law allows it, the terms prohibit using WHOOP data to create, train, test, or improve AI or machine-learning models or systems (§4.2(c)). They also require you to report a security incident to WHOOP within 48 hours (§2.4). Read them before you deploy.
 
-## Local Development
+## Running on Your Own Computer
 
 Requires Node.js 22 or later.
 
@@ -108,7 +120,8 @@ npm install
 cat > .env << EOF
 WHOOP_CLIENT_ID=your_client_id
 WHOOP_CLIENT_SECRET=your_client_secret
-WHOOP_REDIRECT_URI=http://localhost:3000/callback
+# Whoop needs an https address: use your tunnel's (see below)
+WHOOP_REDIRECT_URI=https://your-tunnel.example.com/callback
 MCP_AUTH_PASSWORD=choose-a-local-password
 MCP_MODE=http
 EOF
@@ -120,6 +133,16 @@ npm run dev
 npm test
 npm run typecheck
 ```
+
+Whoop's redirect URLs must be `https` (or an app scheme), so a server on your computer needs an https tunnel, for example `cloudflared tunnel --url http://localhost:3000` or `ngrok http 3000`. Then:
+
+1. Set `WHOOP_REDIRECT_URI` to the tunnel's `/callback` address.
+2. Add that address to your Whoop app.
+3. Connect your MCP client to the tunnel's `/mcp` address.
+
+Quick tunnels get a new address every time they start, so you'd repeat steps 1 to 3; a named tunnel keeps one address. The tunnel provider carries the traffic, including the tools' answers.
+
+`MCP_MODE=stdio` runs the server for MCP clients that start it as a local command. It has no sign-in, because only the app that started it can reach it. It can't receive the Whoop login either, so connect Whoop once with the server in `http` mode and the same `DB_PATH`, stop it, then start the `stdio` server. Don't run both at once: Whoop replaces the refresh token on every use, so two servers sharing one database log each other out.
 
 ## Environment Variables
 
@@ -135,7 +158,7 @@ npm run typecheck
 | `TRUST_PROXY` | Proxies allowed to report the client's IP (used by the sign-in rate limits): a hop count, `false`, or addresses/subnets | `1` on Railway, otherwise `false` |
 | `DB_PATH` | SQLite database path | `./whoop.db` |
 | `PORT` | HTTP server port | `3000` |
-| `MCP_MODE` | `http` for a remote server, or `stdio` for a local MCP client over stdin/stdout. `stdio` has no callback endpoint, so connect your Whoop account in `http` mode first. | `http` |
+| `MCP_MODE` | `http` for a server, or `stdio` for an MCP client that starts it as a local command (see [Running on Your Own Computer](#running-on-your-own-computer)) | `http` |
 
 ## Architecture
 

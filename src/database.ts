@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { encrypt, decrypt, isEncrypted } from './crypto.js';
+import { wakeDay } from './days.js';
 import type {
 	WhoopTokens,
 	WhoopCycle,
@@ -93,6 +94,7 @@ export class WhoopDatabase {
 				kilojoule REAL,
 				avg_hr INTEGER,
 				max_hr INTEGER,
+				timezone_offset TEXT,
 				synced_at TEXT DEFAULT CURRENT_TIMESTAMP
 			);
 
@@ -130,6 +132,7 @@ export class WhoopDatabase {
 				sleep_needed_baseline_milli INTEGER,
 				sleep_needed_debt_milli INTEGER,
 				sleep_needed_strain_milli INTEGER,
+				timezone_offset TEXT,
 				synced_at TEXT DEFAULT CURRENT_TIMESTAMP
 			);
 
@@ -137,6 +140,8 @@ export class WhoopDatabase {
 				id TEXT PRIMARY KEY,
 				user_id INTEGER NOT NULL,
 				sport_id INTEGER NOT NULL,
+				sport_name TEXT,
+				timezone_offset TEXT,
 				start_time TEXT NOT NULL,
 				end_time TEXT NOT NULL,
 				score_state TEXT NOT NULL,
@@ -201,6 +206,31 @@ export class WhoopDatabase {
 
 			INSERT OR IGNORE INTO sync_state (id) VALUES (1);
 		`);
+
+		// Columns added after 1.0.0. CREATE TABLE IF NOT EXISTS never changes an existing
+		// table, so databases from earlier versions get them here. One transaction, so a
+		// server that stops half way redoes all of it on the next start, re-sync included.
+		this.db.transaction(() => {
+			const added = [
+				this.addColumn('cycles', 'timezone_offset', 'TEXT'),
+				this.addColumn('sleep', 'timezone_offset', 'TEXT'),
+				this.addColumn('workouts', 'sport_name', 'TEXT'),
+				this.addColumn('workouts', 'timezone_offset', 'TEXT'),
+			];
+			if (added.includes(true)) {
+				// Rows synced before these columns existed have no timezone, and 1.0.0 never stored
+				// workouts. Forgetting the last sync makes the next one pull the full 90 days again.
+				this.db.prepare('UPDATE sync_state SET last_sync_at = NULL WHERE id = 1').run();
+			}
+		})();
+	}
+
+	/** Returns true if the column had to be added. */
+	private addColumn(table: string, column: string, type: string): boolean {
+		const columns = this.db.prepare(`SELECT name FROM pragma_table_info('${table}')`).all() as { name: string }[];
+		if (columns.some(existing => existing.name === column)) return false;
+		this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+		return true;
 	}
 
 	saveTokens(tokens: WhoopTokens): void {
@@ -267,8 +297,8 @@ export class WhoopDatabase {
 
 	upsertCycles(cycles: WhoopCycle[]): void {
 		const stmt = this.db.prepare(`
-			INSERT OR REPLACE INTO cycles (id, user_id, start_time, end_time, score_state, strain, kilojoule, avg_hr, max_hr, synced_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+			INSERT OR REPLACE INTO cycles (id, user_id, start_time, end_time, score_state, strain, kilojoule, avg_hr, max_hr, timezone_offset, synced_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		`);
 
 		const insertMany = this.db.transaction((items: WhoopCycle[]) => {
@@ -282,7 +312,8 @@ export class WhoopDatabase {
 					c.score?.strain ?? null,
 					c.score?.kilojoule ?? null,
 					c.score?.average_heart_rate ?? null,
-					c.score?.max_heart_rate ?? null
+					c.score?.max_heart_rate ?? null,
+					c.timezone_offset ?? null
 				);
 			}
 		});
@@ -322,8 +353,8 @@ export class WhoopDatabase {
 				id, user_id, start_time, end_time, is_nap, score_state,
 				total_in_bed_milli, total_awake_milli, total_light_milli, total_deep_milli, total_rem_milli,
 				sleep_performance, sleep_efficiency, sleep_consistency, respiratory_rate,
-				sleep_needed_baseline_milli, sleep_needed_debt_milli, sleep_needed_strain_milli, synced_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+				sleep_needed_baseline_milli, sleep_needed_debt_milli, sleep_needed_strain_milli, timezone_offset, synced_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		`);
 
 		const insertMany = this.db.transaction((items: WhoopSleep[]) => {
@@ -346,7 +377,8 @@ export class WhoopDatabase {
 					s.score?.respiratory_rate ?? null,
 					s.score?.sleep_needed?.baseline_milli ?? null,
 					s.score?.sleep_needed?.need_from_sleep_debt_milli ?? null,
-					s.score?.sleep_needed?.need_from_recent_strain_milli ?? null
+					s.score?.sleep_needed?.need_from_recent_strain_milli ?? null,
+					s.timezone_offset ?? null
 				);
 			}
 		});
@@ -357,11 +389,11 @@ export class WhoopDatabase {
 	upsertWorkouts(workouts: WhoopWorkout[]): void {
 		const stmt = this.db.prepare(`
 			INSERT OR REPLACE INTO workouts (
-				id, user_id, sport_id, start_time, end_time, score_state,
+				id, user_id, sport_id, sport_name, timezone_offset, start_time, end_time, score_state,
 				strain, avg_hr, max_hr, kilojoule,
 				zone_zero_milli, zone_one_milli, zone_two_milli, zone_three_milli, zone_four_milli, zone_five_milli,
 				synced_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		`);
 
 		const insertMany = this.db.transaction((items: WhoopWorkout[]) => {
@@ -370,6 +402,8 @@ export class WhoopDatabase {
 					w.id,
 					w.user_id,
 					w.sport_id,
+					w.sport_name ?? null,
+					w.timezone_offset ?? null,
 					w.start,
 					w.end,
 					w.score_state,
@@ -402,39 +436,48 @@ export class WhoopDatabase {
 		return this.db.prepare('SELECT * FROM sleep WHERE is_nap = 0 ORDER BY start_time DESC LIMIT 1').get() as DbSleep | undefined ?? null;
 	}
 
-	getWorkoutsByDateRange(startDate: string, endDate: string): DbWorkout[] {
-		return this.db.prepare(`
-			SELECT * FROM workouts WHERE start_time >= ? AND start_time <= ? ORDER BY start_time DESC
-		`).all(startDate, endDate) as DbWorkout[];
+	/** Workouts that started on or after `since` (an ISO date or timestamp), newest first. */
+	getWorkouts(since: string): DbWorkout[] {
+		return this.db.prepare('SELECT * FROM workouts WHERE start_time >= ? ORDER BY start_time DESC').all(since) as DbWorkout[];
 	}
 
+	// Trend rows are dated by the member's local day (see days.ts), not the UTC date.
+
 	getRecoveryTrends(days: number): RecoveryTrendRow[] {
-		return this.db.prepare(`
-			SELECT DATE(created_at) as date, recovery_score, hrv_rmssd as hrv, resting_hr as rhr
-			FROM recovery
-			WHERE recovery_score IS NOT NULL AND created_at >= DATE('now', '-' || ? || ' days')
-			ORDER BY created_at DESC
-		`).all(days) as RecoveryTrendRow[];
+		const rows = this.db.prepare(`
+			SELECT r.recovery_score, r.hrv_rmssd as hrv, r.resting_hr as rhr, r.created_at,
+				c.start_time as cycle_start, c.timezone_offset
+			FROM recovery r LEFT JOIN cycles c ON c.id = r.id
+			WHERE r.recovery_score IS NOT NULL AND r.created_at >= DATE('now', '-' || ? || ' days')
+			ORDER BY r.created_at DESC
+		`).all(days) as (Omit<RecoveryTrendRow, 'date'> & { created_at: string; cycle_start: string | null; timezone_offset: string | null })[];
+		// A recovery belongs to the same day as its cycle.
+		return rows.map(({ created_at, cycle_start, timezone_offset, ...row }) => ({
+			...row,
+			date: cycle_start ? wakeDay(cycle_start, timezone_offset) : created_at.slice(0, 10),
+		}));
 	}
 
 	getSleepTrends(days: number): SleepTrendRow[] {
-		return this.db.prepare(`
-			SELECT DATE(start_time) as date,
+		const rows = this.db.prepare(`
+			SELECT start_time, timezone_offset,
 				ROUND((total_in_bed_milli - total_awake_milli) / 3600000.0, 2) as total_sleep_hours,
 				sleep_performance as performance, sleep_efficiency as efficiency
 			FROM sleep
 			WHERE is_nap = 0 AND sleep_performance IS NOT NULL AND start_time >= DATE('now', '-' || ? || ' days')
 			ORDER BY start_time DESC
-		`).all(days) as SleepTrendRow[];
+		`).all(days) as (Omit<SleepTrendRow, 'date'> & { start_time: string; timezone_offset: string | null })[];
+		return rows.map(({ start_time, timezone_offset, ...row }) => ({ ...row, date: wakeDay(start_time, timezone_offset) }));
 	}
 
 	getStrainTrends(days: number): StrainTrendRow[] {
-		return this.db.prepare(`
-			SELECT DATE(start_time) as date, strain, ROUND(kilojoule / 4.184, 0) as calories
+		const rows = this.db.prepare(`
+			SELECT start_time, timezone_offset, strain, ROUND(kilojoule / 4.184, 0) as calories
 			FROM cycles
 			WHERE strain IS NOT NULL AND start_time >= DATE('now', '-' || ? || ' days')
 			ORDER BY start_time DESC
-		`).all(days) as StrainTrendRow[];
+		`).all(days) as (Omit<StrainTrendRow, 'date'> & { start_time: string; timezone_offset: string | null })[];
+		return rows.map(({ start_time, timezone_offset, ...row }) => ({ ...row, date: wakeDay(start_time, timezone_offset) }));
 	}
 
 	getSetting(key: string): string | undefined {

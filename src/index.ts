@@ -36,7 +36,7 @@ const authStates = new PendingAuthStates();
 
 async function main(): Promise<void> {
 	if (config.mode === 'stdio') {
-		const server = createMcpServer({ db, client, sync, authStates, redirectUri: config.redirectUri });
+		const server = createMcpServer({ db, client, sync, authStates, redirectUri: config.redirectUri, mode: 'stdio' });
 		const transport = new StdioServerTransport();
 		await server.connect(transport);
 		process.stderr.write('Whoop MCP server running on stdio\n');

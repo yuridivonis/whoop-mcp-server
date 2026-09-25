@@ -25,12 +25,16 @@ Upgrading takes a few minutes: see [Upgrading from 1.0.0](README.md#upgrading-fr
 - **Stale sessions:** after a redeploy, clients failed with stale session IDs. The server is now stateless. Thanks to @Dealing1191 for raising this in #4. (#5)
 - **Changed encryption key:** a changed key crashed the server at startup. Stored tokens that can't be decrypted now read as disconnected. (#5)
 - **Architecture diagram:** the diagram in the README was misaligned. Thanks to @sweenzor. (#1)
+- **Day labels:** days were labelled by the UTC date a Whoop cycle started. So in timezones east of UTC, every row showed the night before. Days now use your local date, from the timezone Whoop records, and a server running west of UTC no longer shifts them either. An upgraded server re-syncs the last 90 days once to fill in the timezone for older days. (#7)
 
 ### Added
 
 - **Tests:** a test suite that drives the server over HTTP, including a full sign-in with the official MCP client. (#5)
 - **CI:** type checks, tests on Node 22 and 24, a dependency audit, and a Docker smoke test run on every pull request. (#6)
 - **Security policy:** `SECURITY.md`, with private vulnerability reporting. (#6)
+- **Workouts tool:** `get_workouts` lists recent workouts with local date and start time, activity, duration, strain, heart rate, time in heart-rate zones 4–5, and calories. Workouts Whoop hasn't scored yet are marked as unscored. (#7)
+- **Privacy notice:** `PRIVACY.md` describes what a deployment stores and shares. Link it as your Whoop app's privacy policy. (#7)
+- **Other clients:** docs for Claude Code, running the server on your own computer, and `stdio` mode. (#7)
 
 ### Changed
 
@@ -42,6 +46,7 @@ Upgrading takes a few minutes: see [Upgrading from 1.0.0](README.md#upgrading-fr
 - **ChatGPT compatibility:** the server accepts its bare address as the OAuth resource, which ChatGPT may send. (#6)
 - **One-time sign-out:** a server that ran `main` before #6 signs its clients out once when it upgrades. (#6)
 - **Local development:** `npm run dev` loads `.env`. (#5)
+- **Fewer Whoop permissions:** the server no longer asks for `read:profile` or `read:body_measurement`. (#7)
 
 ### Removed
 

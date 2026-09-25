@@ -53,7 +53,7 @@ export async function startTestServer({ dbPath = ':memory:', password = PASSWORD
 	const exchangedCodes: string[] = [];
 
 	const client = {
-		getAuthorizationUrl: (_scopes: string[], state: string) => `https://whoop.example/auth?state=${state}`,
+		getAuthorizationUrl: (scopes: string[], state: string) => `https://whoop.example/auth?${new URLSearchParams({ scope: scopes.join(' '), state })}`,
 		exchangeCodeForTokens: async (code: string): Promise<WhoopTokens> => {
 			exchangedCodes.push(code);
 			return { access_token: 'whoop-access', refresh_token: 'whoop-refresh', expires_at: Date.now() + 3_600_000 };

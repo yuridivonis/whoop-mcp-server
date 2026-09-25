@@ -13,7 +13,7 @@ Upgrading takes a few minutes: see [Upgrading from 1.0.0](README.md#upgrading-fr
 - **Whoop links:** the Whoop authorization callback only accepts one-time links issued by `get_auth_url`. (#5)
 - **Password changes:** changing `MCP_AUTH_PASSWORD` signs every client out. (#6)
 - **SDK update:** `@modelcontextprotocol/sdk` is updated to 1.26 or later, for GHSA-345p-7cg4-v4c7 and GHSA-8r9q-7v3j-jr4g. This server didn't use the affected features, but scanners flagged the old version. (#5)
-- **Docker image:** it now runs on Node 24. It used Node 20, which no longer receives security updates. (#6)
+- **Docker image:** it now runs on Node 24. It used Node 20, which no longer receives security updates. better-sqlite3 is upgraded to 13 alongside, because older versions can crash the process on Node 24.19 and later ([nodejs/node#65446](https://github.com/nodejs/node/issues/65446)). (#6)
 
 ### Fixed
 

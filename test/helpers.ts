@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import type { TestContext } from 'node:test';
 import type { AddressInfo } from 'node:net';
 import { createHash, randomBytes } from 'node:crypto';
 import { createApp } from '../src/app.js';
@@ -67,6 +68,13 @@ export async function startTestServer(dbPath = ':memory:', password = PASSWORD):
 			db.close();
 		},
 	};
+}
+
+/** An in-memory database that is closed when the test ends. */
+export function memoryDb(t: TestContext): WhoopDatabase {
+	const db = new WhoopDatabase(':memory:');
+	t.after(() => db.close());
+	return db;
 }
 
 export function pkcePair(): { verifier: string; challenge: string } {

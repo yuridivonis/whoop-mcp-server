@@ -1,8 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { WhoopDatabase } from '../src/database.js';
 import { WhoopSync } from '../src/sync.js';
 import type { WhoopClient } from '../src/whoop-client.js';
+import { memoryDb } from './helpers.js';
 
 /** A WHOOP client whose fetches take a moment and record how many run at once. */
 function slowClient(): { client: WhoopClient; stats: { fetches: number; concurrent: number; maxConcurrent: number } } {
@@ -25,9 +25,9 @@ function slowClient(): { client: WhoopClient; stats: { fetches: number; concurre
 }
 
 describe('WhoopSync', () => {
-	it('runs one sync when two tool calls arrive together', async () => {
+	it('runs one sync when two tool calls arrive together', async t => {
 		const { client, stats } = slowClient();
-		const sync = new WhoopSync(client, new WhoopDatabase(':memory:'));
+		const sync = new WhoopSync(client, memoryDb(t));
 
 		const results = await Promise.all([sync.smartSync(), sync.smartSync()]);
 
@@ -42,7 +42,7 @@ describe('WhoopSync', () => {
 		(client as unknown as { getAllCycles: () => Promise<never> }).getAllCycles = async () => {
 			throw new Error('Whoop API request failed: 500');
 		};
-		const sync = new WhoopSync(client, new WhoopDatabase(':memory:'));
+		const sync = new WhoopSync(client, memoryDb(t));
 
 		const [failed, next] = await Promise.allSettled([sync.syncDays(7), sync.syncDays(7)]);
 
@@ -62,14 +62,14 @@ describe('WhoopSync', () => {
 			return true;
 		});
 
-		await assert.rejects(new WhoopSync(client, new WhoopDatabase(':memory:')).syncDays(7));
+		await assert.rejects(new WhoopSync(client, memoryDb(t)).syncDays(7));
 
 		assert.deepEqual(logged, ['Whoop sync failed: Whoop API request failed: 503 upstream unavailable\n']);
 	});
 
-	it('queues a full sync behind a running one instead of overlapping', async () => {
+	it('queues a full sync behind a running one instead of overlapping', async t => {
 		const { client, stats } = slowClient();
-		const sync = new WhoopSync(client, new WhoopDatabase(':memory:'));
+		const sync = new WhoopSync(client, memoryDb(t));
 
 		await Promise.all([sync.syncDays(7), sync.syncDays(90)]);
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { WhoopDatabase } from '../src/database.js';
+import { memoryDb } from './helpers.js';
 import type { WhoopWorkout } from '../src/types.js';
 
 /** Shaped like the workout example in WHOOP's v2 API reference. */
@@ -35,8 +35,8 @@ function v2Workout(overrides: Partial<WhoopWorkout> = {}): WhoopWorkout {
 }
 
 describe('stored workouts', () => {
-	it('keep the heart-rate zones from a v2 workout', () => {
-		const db = new WhoopDatabase(':memory:');
+	it('keep the heart-rate zones from a v2 workout', t => {
+		const db = memoryDb(t);
 		db.upsertWorkouts([v2Workout()]);
 
 		const [stored] = db.getWorkoutsByDateRange('2026-09-01', '2026-09-30');
@@ -45,8 +45,8 @@ describe('stored workouts', () => {
 		assert.equal(stored.strain, 8.2463);
 	});
 
-	it('are stored even when WHOOP sends no zone data', () => {
-		const db = new WhoopDatabase(':memory:');
+	it('are stored even when WHOOP sends no zone data', t => {
+		const db = memoryDb(t);
 		const workout = v2Workout();
 		delete workout.score?.zone_durations;
 		db.upsertWorkouts([workout]);
@@ -66,7 +66,7 @@ describe('stored WHOOP tokens', () => {
 
 	it('read as "not connected" instead of crashing after the encryption key changes', t => {
 		t.mock.method(process.stderr, 'write', () => true); // the expected "could not be decrypted" warning
-		const db = new WhoopDatabase(':memory:');
+		const db = memoryDb(t);
 		process.env.ENCRYPTION_SECRET = 'key-before-rotation';
 		db.saveTokens({ access_token: 'access', refresh_token: 'refresh', expires_at: Date.now() + 3_600_000 });
 

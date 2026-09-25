@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] - 2026-09-25
+
+### Fixed
+
+- **Time asleep:** total sleep in `get_today` and `get_sleep_analysis` also counted the time the strap recorded no data. It's now the sum of light, deep, and REM sleep. Thanks to @nkondratyk93, who spotted this in #2. (#9)
+- **Sleep tool description:** `get_sleep_analysis` said it covered stages and sleep debt, which it doesn't report. It now describes what it shows: time asleep, performance, and efficiency. (#9)
+
 ## [1.1.0] - 2026-09-25
 
 Upgrading takes a few minutes: see [Upgrading from 1.0.0](README.md#upgrading-from-100).
@@ -56,5 +63,6 @@ Upgrading takes a few minutes: see [Upgrading from 1.0.0](README.md#upgrading-fr
 
 Initial release: a remote MCP server with Whoop recovery, sleep, and strain tools, a local SQLite cache, and Railway deployment.
 
+[1.1.1]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.1.1
 [1.1.0]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.1.0
 [1.0.0]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.0.0

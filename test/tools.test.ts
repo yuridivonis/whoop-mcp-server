@@ -62,8 +62,9 @@ describe('data tools', () => {
 			nap: false,
 			score_state: 'SCORED',
 			score: {
+				// 7 hours asleep in 7h 50m in bed: 30 minutes awake, and 20 minutes the strap recorded no data.
 				stage_summary: {
-					total_in_bed_time_milli: 27_000_000, total_awake_time_milli: 1_800_000, total_no_data_time_milli: 0,
+					total_in_bed_time_milli: 28_200_000, total_awake_time_milli: 1_800_000, total_no_data_time_milli: 1_200_000,
 					total_light_sleep_time_milli: 12_000_000, total_slow_wave_sleep_time_milli: 7_000_000,
 					total_rem_sleep_time_milli: 6_200_000, sleep_cycle_count: 5, disturbance_count: 3,
 				},
@@ -146,6 +147,15 @@ describe('data tools', () => {
 		assert.match(recovery, new RegExp(`\\| ${today} \\| 85% \\| 69\\.3 ms \\| 50 bpm \\|`));
 	});
 
+	it('counts time asleep, not the time the strap recorded no data', async () => {
+		const today = await callTool(server, accessToken, 'get_today');
+		assert.match(today, /\*\*Total Sleep\*\*: 7h 0m/);
+
+		const sleep = await callTool(server, accessToken, 'get_sleep_analysis', { days: 14 });
+		assert.match(sleep, /\| 7\.0h \|/);
+		assert.match(sleep, /\*\*Duration\*\*: 7\.0 hours/);
+	});
+
 	it('lists workouts with local date and time, activity, strain and time in zones 4–5', async () => {
 		const workouts = await callTool(server, accessToken, 'get_workouts', { days: 7 });
 		assert.match(workouts, new RegExp(`\\| ${label(utcMidnight(-1))} \\| 00:30 \\| Functional fitness \\| 0h 45m \\| 8\\.2 \\| 135 bpm \\| 171 bpm \\| 0h 15m \\| 500 kcal \\|`));
@@ -160,6 +170,45 @@ describe('data tools', () => {
 		const reply = await callTool(server, accessToken, 'get_auth_url');
 		const link = new URL(reply.match(/Visit: (\S+)/)?.[1] ?? '');
 		assert.deepEqual(link.searchParams.get('scope')?.split(' '), ['read:cycles', 'read:recovery', 'read:sleep', 'read:workout', 'offline']);
+	});
+});
+
+describe('time asleep', () => {
+	it('shows N/A rather than a partial total when a sleep stage is missing', async t => {
+		const db = memoryDb(t);
+		db.saveTokens({ access_token: 'whoop-access', refresh_token: 'whoop-refresh', expires_at: Date.now() + HOUR });
+		const fellAsleep = new Date(utcMidnight(-1) + 15.5 * HOUR).toISOString();
+		const wokeUp = new Date(utcMidnight(-1) + 23 * HOUR).toISOString();
+		// Whoop left out the REM stage.
+		db.upsertSleeps([{
+			id: 'sleep-partial', user_id: 1, created_at: wokeUp, updated_at: wokeUp, start: fellAsleep, end: wokeUp,
+			timezone_offset: '+08:00', nap: false, score_state: 'SCORED',
+			score: {
+				stage_summary: {
+					total_in_bed_time_milli: 27_000_000, total_awake_time_milli: 1_800_000, total_no_data_time_milli: 0,
+					total_light_sleep_time_milli: 12_000_000, total_slow_wave_sleep_time_milli: 7_000_000,
+				},
+				sleep_performance_percentage: 95,
+			},
+		} as unknown as WhoopSleep]);
+
+		const server = createMcpServer({
+			db,
+			client: {} as WhoopClient,
+			sync: { smartSync: async () => ({ type: 'skip' }) } as unknown as WhoopSync,
+			authStates: new PendingAuthStates(),
+			redirectUri: 'http://localhost:3000/callback',
+			mode: 'stdio',
+		});
+		const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+		await server.connect(serverSide);
+		const client = new Client({ name: 'test', version: '0' });
+		await client.connect(clientSide);
+		t.after(() => client.close());
+
+		const result = await client.callTool({ name: 'get_today', arguments: {} });
+		const [{ text }] = result.content as { text: string }[];
+		assert.match(text, /\*\*Total Sleep\*\*: N\/A/);
 	});
 });
 

@@ -24,7 +24,7 @@ Built on the [Whoop Developer API v2](https://developer.whoop.com/docs/introduct
 |------|-------------|
 | `get_today` | Morning briefing with recovery, sleep, and strain |
 | `get_recovery_trends` | Recovery patterns over time with HRV/RHR |
-| `get_sleep_analysis` | Sleep quality trends and stage breakdowns |
+| `get_sleep_analysis` | Sleep trends: time asleep, performance, and efficiency |
 | `get_strain_history` | Daily strain and calorie trends |
 | `get_workouts` | Recent workouts with activity, duration, strain, heart rate, and calories |
 | `sync_data` | Manually trigger a data sync (`full: true` pulls the last 90 days) |

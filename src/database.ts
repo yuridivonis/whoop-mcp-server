@@ -461,7 +461,7 @@ export class WhoopDatabase {
 	getSleepTrends(days: number): SleepTrendRow[] {
 		const rows = this.db.prepare(`
 			SELECT start_time, timezone_offset,
-				ROUND((total_in_bed_milli - total_awake_milli) / 3600000.0, 2) as total_sleep_hours,
+				ROUND((total_light_milli + total_deep_milli + total_rem_milli) / 3600000.0, 2) as total_sleep_hours,
 				sleep_performance as performance, sleep_efficiency as efficiency
 			FROM sleep
 			WHERE is_nap = 0 AND sleep_performance IS NOT NULL AND start_time >= DATE('now', '-' || ? || ' days')

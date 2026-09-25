@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## [1.1.0] - Unreleased
+## [1.1.0] - 2026-09-25
 
 Upgrading takes a few minutes: see [Upgrading from 1.0.0](README.md#upgrading-from-100).
 
@@ -55,3 +55,6 @@ Upgrading takes a few minutes: see [Upgrading from 1.0.0](README.md#upgrading-fr
 ## [1.0.0] - 2025-12-15
 
 Initial release: a remote MCP server with Whoop recovery, sleep, and strain tools, a local SQLite cache, and Railway deployment.
+
+[1.1.0]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.1.0
+[1.0.0]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.0.0

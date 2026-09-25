@@ -25,14 +25,14 @@ export interface TestServer {
 }
 
 /** Starts the real app on a random port, with WHOOP and the sync stubbed out. */
-export async function startTestServer(dbPath = ':memory:'): Promise<TestServer> {
+export async function startTestServer(dbPath = ':memory:', password = PASSWORD): Promise<TestServer> {
 	const httpServer = createServer();
 	await new Promise<void>(resolve => httpServer.listen(0, resolve));
 	const { port } = httpServer.address() as AddressInfo;
 	const baseUrl = `http://localhost:${port}`;
 
 	const config = loadConfig({
-		MCP_AUTH_PASSWORD: PASSWORD,
+		MCP_AUTH_PASSWORD: password,
 		PUBLIC_URL: baseUrl,
 		WHOOP_REDIRECT_URI: `${baseUrl}/callback`,
 		DB_PATH: dbPath,

@@ -180,6 +180,11 @@ export class WhoopDatabase {
 
 			CREATE INDEX IF NOT EXISTS idx_oauth_tokens_family ON oauth_tokens(family_id);
 
+			CREATE TABLE IF NOT EXISTS settings (
+				key TEXT PRIMARY KEY,
+				value TEXT NOT NULL
+			);
+
 			CREATE INDEX IF NOT EXISTS idx_cycles_start ON cycles(start_time);
 			CREATE INDEX IF NOT EXISTS idx_recovery_created ON recovery(created_at);
 			CREATE INDEX IF NOT EXISTS idx_sleep_start ON sleep(start_time);
@@ -423,6 +428,15 @@ export class WhoopDatabase {
 		`).all(days) as StrainTrendRow[];
 	}
 
+	getSetting(key: string): string | undefined {
+		const row = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
+		return row?.value;
+	}
+
+	setSetting(key: string, value: string): void {
+		this.db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value);
+	}
+
 	getOAuthClient(clientId: string): string | undefined {
 		const row = this.db.prepare('SELECT client_info FROM oauth_clients WHERE client_id = ?').get(clientId) as { client_info: string } | undefined;
 		return row?.client_info;
@@ -473,6 +487,12 @@ export class WhoopDatabase {
 
 	deleteOAuthToken(tokenHash: string): void {
 		this.db.prepare('DELETE FROM oauth_tokens WHERE token_hash = ?').run(tokenHash);
+	}
+
+	/** Signs every client out: all codes and tokens. Registered clients are kept. */
+	deleteAllOAuthGrants(): void {
+		this.db.prepare('DELETE FROM oauth_codes').run();
+		this.db.prepare('DELETE FROM oauth_tokens').run();
 	}
 
 	/** Revokes every token issued from one sign-in. */

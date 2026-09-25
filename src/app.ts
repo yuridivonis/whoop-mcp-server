@@ -4,7 +4,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
 import type { Config } from './config.js';
-import { McpAuthProvider } from './auth/provider.js';
+import { McpAuthProvider, revokeSignInsIfPasswordChanged } from './auth/provider.js';
 import { createMcpServer, type ToolDeps } from './tools.js';
 
 export interface AppDeps extends Omit<ToolDeps, 'redirectUri'> {
@@ -40,6 +40,10 @@ export function createApp({ config, db, client, sync, authStates }: AppDeps): ex
 	// The rate limits below need the client's address; see TRUST_PROXY in config.ts.
 	app.set('trust proxy', config.trustProxy);
 	app.use(express.json());
+
+	if (revokeSignInsIfPasswordChanged(db, config.authPassword)) {
+		process.stderr.write('MCP_AUTH_PASSWORD changed: every client has been signed out and must sign in again.\n');
+	}
 
 	const mcpUrl = new URL('/mcp', config.publicUrl);
 	const provider = new McpAuthProvider({ db, password: config.authPassword, resourceUrl: mcpUrl });

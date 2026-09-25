@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import type { Response } from 'express';
 import type { AuthorizationParams, OAuthServerProvider } from '@modelcontextprotocol/sdk/server/auth/provider.js';
 import type { OAuthRegisteredClientsStore } from '@modelcontextprotocol/sdk/server/auth/clients.js';
@@ -32,6 +32,32 @@ function passwordMatches(candidate: string, expected: string): boolean {
 	const a = createHash('sha256').update(candidate).digest();
 	const b = createHash('sha256').update(expected).digest();
 	return timingSafeEqual(a, b);
+}
+
+const PASSWORD_FINGERPRINT = 'mcp_auth_password_fingerprint';
+
+/**
+ * Signs every client out when MCP_AUTH_PASSWORD has changed since the last start, so
+ * rotating a leaked password also cuts off whoever used it. Stores a salted scrypt
+ * fingerprint of the password, never the password itself. Returns true if it signed
+ * clients out.
+ */
+export function revokeSignInsIfPasswordChanged(db: WhoopDatabase, password: string): boolean {
+	const stored = db.getSetting(PASSWORD_FINGERPRINT);
+	if (stored) {
+		const [salt, hash] = stored.split(':');
+		const expected = Buffer.from(hash ?? '', 'hex');
+		const actual = scryptSync(password, Buffer.from(salt, 'hex'), 32);
+		if (expected.length === actual.length && timingSafeEqual(expected, actual)) return false;
+	}
+
+	const salt = randomBytes(16);
+	db.setSetting(PASSWORD_FINGERPRINT, `${salt.toString('hex')}:${scryptSync(password, salt, 32).toString('hex')}`);
+	// The first start with a fingerprint (a new install, or an upgrade) has nothing to compare.
+	if (!stored) return false;
+
+	db.deleteAllOAuthGrants();
+	return true;
 }
 
 interface McpAuthProviderOptions {

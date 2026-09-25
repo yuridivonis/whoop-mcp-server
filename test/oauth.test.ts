@@ -391,6 +391,28 @@ describe('refresh-token replay detection', () => {
 });
 
 describe('sign-in state', () => {
+	it('is revoked for every client when MCP_AUTH_PASSWORD changes', async t => {
+		t.mock.method(process.stderr, 'write', () => true); // the expected "signed out" notice
+		const dir = mkdtempSync(join(tmpdir(), 'whoop-mcp-test-'));
+		const dbPath = join(dir, 'whoop.db');
+		try {
+			const first = await startTestServer(dbPath);
+			const { tokens } = await signIn(first.baseUrl);
+			await first.close();
+
+			const second = await startTestServer(dbPath, 'a completely new password');
+			try {
+				assert.equal((await mcpRequest(second.baseUrl, tokens.access_token, INITIALIZE)).status, 401);
+				const refresh = await postToken(second.baseUrl, { grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: 'any' });
+				assert.equal(refresh.status, 400);
+			} finally {
+				await second.close();
+			}
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	it('survives a restart, so a redeploy does not sign Claude out', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'whoop-mcp-test-'));
 		const dbPath = join(dir, 'whoop.db');

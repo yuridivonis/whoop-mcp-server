@@ -1,8 +1,13 @@
 # Whoop MCP Server
 
-A Model Context Protocol (MCP) server that connects your Whoop health data to Claude. Designed to be hosted remotely and used as a custom connector in Claude.ai.
+[![CI](https://github.com/yuridivonis/whoop-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/yuridivonis/whoop-mcp-server/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Built using the [Whoop Developer API v2](https://developer.whoop.com/docs/introduction).
+A Model Context Protocol (MCP) server that connects your Whoop health data to Claude. You host it yourself and add it to Claude.ai as a custom connector: your data stays on your server, and Claude signs in with a password you choose.
+
+Built on the [Whoop Developer API v2](https://developer.whoop.com/docs/introduction).
+
+> This is an independent open-source project. It uses the WHOOP API to access data from WHOOP products, and is not affiliated with, endorsed by, or sponsored by WHOOP.
 
 ## Features
 
@@ -80,8 +85,17 @@ If your 1.0.0 server worked with Claude on a public URL, assume your data could 
 - `/mcp` only answers signed-in clients. Sign-in codes and refresh tokens work once and are stored as hashes; if one is ever used twice, the whole sign-in is revoked.
 - Failed sign-ins are limited to 10 per address every 15 minutes, and 50 per hour in total.
 - Whoop tokens are encrypted at rest (AES-256-GCM). Your health data stays in your server's database and is only sent to the client you signed in.
+- Changing `MCP_AUTH_PASSWORD` signs every client out.
+
+See [SECURITY.md](SECURITY.md) for the full security model and how to report a vulnerability privately.
+
+## Using the Whoop API
+
+When you deploy this server, you register your own Whoop developer app, so you are the developer under WHOOP's [API Terms of Use](https://developer.whoop.com/api-terms-of-use/) and responsible for following them. Among other things, the terms prohibit using WHOOP data to create, train, test, or improve AI or machine-learning models or systems (§4.2(c)), and require you to report a security incident to WHOOP within 48 hours (§2.4). Read them before you deploy.
 
 ## Local Development
+
+Requires Node.js 22 or later.
 
 ```bash
 # Install dependencies
@@ -123,25 +137,33 @@ npm run typecheck
 
 ```
 ┌─────────────────────────────────────────────────┐
+│  Claude.ai (custom connector)                   │
+│  "How did I sleep last night?"                  │
+└────────────────────────┬────────────────────────┘
+                         │  signs in once (OAuth 2.1),
+                         │  then calls tools on /mcp
+                         ▼
+┌─────────────────────────────────────────────────┐
 │                Whoop MCP Server                 │
 │                                                 │
 │  ┌─────────────┐      ┌──────────────────┐      │
-│  │ MCP Server  │◄────►│  SQLite Database │      │
-│  │ (HTTP)      │      │  - cycles        │      │
+│  │ Sign-in     │─────►│  SQLite Database │      │
+│  │ (OAuth 2.1) │      │  - cycles        │      │
 │  └─────────────┘      │  - recovery      │      │
-│         │             │  - sleep         │      │
-│         │             │  - workouts      │      │
-│         ▼             │  - tokens        │      │
-│  ┌─────────────┐      └──────────────────┘      │
-│  │ Whoop API   │                                │
+│  ┌─────────────┐      │  - sleep         │      │
+│  │ MCP tools   │◄────►│  - workouts      │      │
+│  └─────────────┘      │  - Whoop tokens  │      │
+│         │             │  - sign-ins      │      │
+│         ▼             └──────────────────┘      │
+│  ┌─────────────┐               ▲                │
+│  │ Whoop API   │───── sync ────┘                │
 │  │ Client      │                                │
 │  └─────────────┘                                │
-└─────────────────────────────────────────────────┘
-         │
-         ▼
+└─────────┬───────────────────────────────────────┘
+          │  Whoop OAuth + API v2
+          ▼
 ┌─────────────────────────────────────────────────┐
-│  Claude.ai (Custom Connector)                   │
-│  "Hey, what's my recovery today?"               │
+│  Whoop API                                      │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -151,6 +173,14 @@ npm run typecheck
 - `GET /v2/recovery` - Recovery scores
 - `GET /v2/activity/sleep` - Sleep records
 - `GET /v2/activity/workout` - Workout records
+
+## Contributing
+
+Issues and pull requests are welcome. Before opening a pull request, run `npm test` and `npm run typecheck`; CI runs both, along with a Docker smoke test.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

@@ -5,7 +5,7 @@ import { WhoopAuthError, type WhoopClient } from './whoop-client.js';
 import type { WhoopDatabase } from './database.js';
 import type { WhoopSync } from './sync.js';
 import type { PendingAuthStates } from './auth-states.js';
-import { localDate } from './days.js';
+import { localDate, localTime } from './days.js';
 
 export const SERVER_VERSION = '1.1.0';
 
@@ -15,6 +15,8 @@ export interface ToolDeps {
 	sync: WhoopSync;
 	authStates: PendingAuthStates;
 	redirectUri: string;
+	/** In stdio mode there is no /callback, so get_auth_url explains how to connect instead. */
+	mode: 'http' | 'stdio';
 }
 
 interface ToolArguments {
@@ -90,7 +92,7 @@ function syncFailureNote(error: unknown): string {
 	return `Note: could not refresh data from Whoop (${message}). Showing previously synced data.\n\n`;
 }
 
-export function createMcpServer({ db, client, sync, authStates, redirectUri }: ToolDeps): Server {
+export function createMcpServer({ db, client, sync, authStates, redirectUri, mode }: ToolDeps): Server {
 	const server = new Server(
 		{ name: 'whoop-mcp-server', version: SERVER_VERSION },
 		{ capabilities: { tools: {} } }
@@ -290,7 +292,8 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri }: T
 
 				case 'get_workouts': {
 					const days = validateDays(typedArgs.days);
-					const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+					// The same calendar window as the other tools, not a rolling one.
+					const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 					const workouts = db.getWorkouts(since);
 
 					if (workouts.length === 0) {
@@ -298,7 +301,7 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri }: T
 					}
 
 					let response = `${note}# Workouts (Last ${days} Days)\n\n`;
-					response += '| Date | Activity | Duration | Strain | Avg HR | Max HR | Calories |\n|------|----------|----------|--------|--------|--------|----------|\n';
+					response += '| Date | Start | Activity | Duration | Strain | Avg HR | Max HR | Zones 4–5 | Calories |\n|------|-------|----------|----------|--------|--------|--------|-----------|----------|\n';
 
 					let totalMillis = 0;
 					let hardZoneMillis = 0;
@@ -306,10 +309,14 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri }: T
 					for (const w of workouts) {
 						const duration = Date.parse(w.end_time) - Date.parse(w.start_time);
 						totalMillis += duration;
-						hardZoneMillis += (w.zone_four_milli ?? 0) + (w.zone_five_milli ?? 0);
-						if (w.strain !== null) strains.push(w.strain);
+						const scored = w.score_state === 'SCORED';
+						const zones = w.zone_four_milli === null && w.zone_five_milli === null ? null : (w.zone_four_milli ?? 0) + (w.zone_five_milli ?? 0);
+						hardZoneMillis += zones ?? 0;
+						if (scored && w.strain !== null) strains.push(w.strain);
+						const strain = scored ? w.strain?.toFixed(1) ?? 'N/A' : 'unscored';
 						const calories = w.kilojoule !== null ? `${Math.round(w.kilojoule / 4.184)} kcal` : 'N/A';
-						response += `| ${formatDate(localDate(w.start_time, w.timezone_offset))} | ${sportName(w.sport_name, w.sport_id)} | ${formatDuration(duration)} | ${w.strain?.toFixed(1) ?? 'N/A'} | ${w.avg_hr ?? 'N/A'} bpm | ${w.max_hr ?? 'N/A'} bpm | ${calories} |\n`;
+						const zoneTime = zones === null ? 'N/A' : zones > 0 ? formatDuration(zones) : '0h 0m';
+						response += `| ${formatDate(localDate(w.start_time, w.timezone_offset))} | ${localTime(w.start_time, w.timezone_offset)} | ${sportName(w.sport_name, w.sport_id)} | ${formatDuration(duration)} | ${strain} | ${w.avg_hr ?? 'N/A'} bpm | ${w.max_hr ?? 'N/A'} bpm | ${zoneTime} | ${calories} |\n`;
 					}
 
 					const avgStrain = strains.length > 0 ? (strains.reduce((sum, value) => sum + value, 0) / strains.length).toFixed(1) : 'N/A';
@@ -340,6 +347,12 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri }: T
 				}
 
 				case 'get_auth_url': {
+					if (mode === 'stdio') {
+						return text(
+							"In stdio mode this server can't receive Whoop's login redirect. Connect Whoop once by running the server in http mode " +
+								'with the same DB_PATH, stop it, then restart this one (see "Running on Your Own Computer" in the README).'
+						);
+					}
 					const url = client.getAuthorizationUrl(WHOOP_SCOPES, authStates.issue());
 					return text(
 						`To authorize with Whoop:\n\n1. Visit: ${url}\n2. Log in and authorize\n3. You'll be redirected back automatically\n\n` +

@@ -14,8 +14,8 @@ Built on the [Whoop Developer API v2](https://developer.whoop.com/docs/introduct
 - **Recovery**: daily recovery score, HRV, resting heart rate, SpO2, skin temperature
 - **Sleep**: duration, stages, efficiency, performance, respiratory rate
 - **Strain**: daily strain score and calories burned
-- **Workouts**: activity, duration, strain, heart rate, calories, and time in heart-rate zones
-- **Auto-sync**: before answering, the server pulls new data from Whoop if the last sync is more than an hour old, and keeps 90 days locally for trends
+- **Workouts**: activity, local start time, duration, strain, heart rate, calories, and time in heart-rate zones 4–5
+- **Auto-sync**: before answering, the server pulls new data from Whoop if the last sync is more than an hour old, and keeps everything it has synced (at least the last 90 days) for trends
 - **Private by default**: Claude signs in with a password you choose (OAuth 2.1), so nobody else can read your data
 
 ## MCP Tools
@@ -38,7 +38,7 @@ Built on the [Whoop Developer API v2](https://developer.whoop.com/docs/introduct
    - **Contacts**: your email. Only Whoop sees it.
    - **Privacy Policy**: the [PRIVACY.md](PRIVACY.md) in your fork, e.g. `https://github.com/<you>/whoop-mcp-server/blob/main/PRIVACY.md`. People see this link when they approve the app.
    - **Redirect URL**: your server's callback, e.g. `https://your-app.up.railway.app/callback`
-   - **Scopes**: `read:recovery`, `read:cycles`, `read:sleep`, and `read:workout`. The server doesn't use the others.
+   - **Scopes**: `read:recovery`, `read:cycles`, `read:sleep`, and `read:workout`. The server doesn't use the others. The login also asks for `offline`, which keeps Claude connected; the dashboard doesn't list it.
    - **Webhooks**: leave empty.
 2. Note your **Client ID** and **Client Secret**.
 
@@ -88,7 +88,7 @@ Claude stays signed in across redeploys. Anyone without the password gets `401 U
 3. Redeploy.
 4. In Claude.ai → Settings → Connectors, remove the Whoop connector and add it again with the same URL. Claude shows the sign-in page once.
 5. If a tool says your Whoop authorization expired, run `get_auth_url` once to reconnect.
-6. Ask Claude to run `sync_data` with `full: true` once. 1.0.0 never stored workouts (the sync failed at that step whenever a scored workout was in range). This backfills the last 90 days, including the timezone information that dates each day correctly.
+6. The first sync after the upgrade pulls the last 90 days again. That backfills workouts (1.0.0 never stored them) and the timezone information that dates each day correctly. It runs the next time Claude uses a tool, or right away if you ask Claude to run `sync_data`.
 7. Optional: in your Whoop app, untick `read:profile` and `read:body_measurement`. 1.1.0 no longer uses them.
 
 If your 1.0.0 server worked with Claude on a public URL, assume your data could have been read. As a precaution, rotate your client secret in the Whoop developer dashboard, update `WHOOP_CLIENT_SECRET`, and run `get_auth_url` once afterwards. Unless `ENCRYPTION_SECRET` is set, the stored Whoop tokens were encrypted with the old client secret. The server starts anyway and treats Whoop as disconnected until you reconnect.
@@ -120,7 +120,8 @@ npm install
 cat > .env << EOF
 WHOOP_CLIENT_ID=your_client_id
 WHOOP_CLIENT_SECRET=your_client_secret
-WHOOP_REDIRECT_URI=http://localhost:3000/callback
+# Whoop needs an https address: use your tunnel's (see below)
+WHOOP_REDIRECT_URI=https://your-tunnel.example.com/callback
 MCP_AUTH_PASSWORD=choose-a-local-password
 MCP_MODE=http
 EOF
@@ -133,13 +134,15 @@ npm test
 npm run typecheck
 ```
 
-Whoop's app settings expect an `https` redirect URL. To connect your Whoop account to a server on your computer, expose it through an https tunnel, for example `cloudflared tunnel --url http://localhost:3000` or `ngrok http 3000`. Then:
+Whoop's redirect URLs must be `https` (or an app scheme), so a server on your computer needs an https tunnel, for example `cloudflared tunnel --url http://localhost:3000` or `ngrok http 3000`. Then:
 
 1. Set `WHOOP_REDIRECT_URI` to the tunnel's `/callback` address.
 2. Add that address to your Whoop app.
 3. Connect your MCP client to the tunnel's `/mcp` address.
 
-`MCP_MODE=stdio` runs the server for MCP clients that start it as a local command. It has no sign-in, because only the app that started it can reach it. It also has no callback for the Whoop login, so connect Whoop first in `http` mode, using the same `DB_PATH`.
+Quick tunnels get a new address every time they start, so you'd repeat steps 1 to 3; a named tunnel keeps one address. The tunnel provider carries the traffic, including the tools' answers.
+
+`MCP_MODE=stdio` runs the server for MCP clients that start it as a local command. It has no sign-in, because only the app that started it can reach it. It can't receive the Whoop login either, so connect Whoop once with the server in `http` mode and the same `DB_PATH`, stop it, then start the `stdio` server. Don't run both at once: Whoop replaces the refresh token on every use, so two servers sharing one database log each other out.
 
 ## Environment Variables
 

@@ -31,7 +31,7 @@ Everything is stored in a SQLite database on the operator's server:
 ## How to delete it
 
 - **Delete the server's database.** On Railway, delete the service's volume or the whole service. This removes the server's copy of your data and of its Whoop tokens.
-- **Revoke access at Whoop:** the authorization itself stays valid at Whoop until the operator removes the app in the [Whoop Developer Dashboard](https://developer-dashboard.whoop.com) or rotates its client secret.
+- **Revoke access at Whoop:** deleting the database doesn't end the authorization at Whoop. You can revoke it yourself in the WHOOP app, under Integrations, and the operator can remove the app in the [Whoop Developer Dashboard](https://developer-dashboard.whoop.com).
 
 ## AI training
 

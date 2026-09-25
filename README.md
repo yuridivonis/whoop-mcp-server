@@ -38,7 +38,7 @@ Built on the [Whoop Developer API v2](https://developer.whoop.com/docs/introduct
    - **Contacts**: your email. Only Whoop sees it.
    - **Privacy Policy**: the [PRIVACY.md](PRIVACY.md) in your fork, e.g. `https://github.com/<you>/whoop-mcp-server/blob/main/PRIVACY.md`. People see this link when they approve the app.
    - **Redirect URL**: your server's callback, e.g. `https://your-app.up.railway.app/callback`
-   - **Scopes**: `read:recovery`, `read:cycles`, `read:sleep`, and `read:workout`. The server doesn't use the others. The login also asks for `offline`, which keeps Claude connected; the dashboard doesn't list it.
+   - **Scopes**: `read:recovery`, `read:cycles`, `read:sleep`, and `read:workout`. The server doesn't use the others. The login also asks for `offline`, which lets the server renew its Whoop access without you logging in again; the dashboard doesn't list it.
    - **Webhooks**: leave empty.
 2. Note your **Client ID** and **Client Secret**.
 
@@ -88,7 +88,7 @@ Claude stays signed in across redeploys. Anyone without the password gets `401 U
 3. Redeploy.
 4. In Claude.ai → Settings → Connectors, remove the Whoop connector and add it again with the same URL. Claude shows the sign-in page once.
 5. If a tool says your Whoop authorization expired, run `get_auth_url` once to reconnect.
-6. The first sync after the upgrade pulls the last 90 days again. That backfills workouts (1.0.0 never stored them) and the timezone information that dates each day correctly. It runs the next time Claude uses a tool, or right away if you ask Claude to run `sync_data`.
+6. The first sync after the upgrade pulls the last 90 days again. That backfills workouts (1.0.0 never stored them) and the timezone information that dates each day correctly. It runs the next time Claude uses a tool. Asking Claude to run `sync_data` with `full: true` does the same by hand.
 7. Optional: in your Whoop app, untick `read:profile` and `read:body_measurement`. 1.1.0 no longer uses them.
 
 If your 1.0.0 server worked with Claude on a public URL, assume your data could have been read. As a precaution, rotate your client secret in the Whoop developer dashboard, update `WHOOP_CLIENT_SECRET`, and run `get_auth_url` once afterwards. Unless `ENCRYPTION_SECRET` is set, the stored Whoop tokens were encrypted with the old client secret. The server starts anyway and treats Whoop as disconnected until you reconnect.

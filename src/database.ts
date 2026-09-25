@@ -208,18 +208,21 @@ export class WhoopDatabase {
 		`);
 
 		// Columns added after 1.0.0. CREATE TABLE IF NOT EXISTS never changes an existing
-		// table, so databases from earlier versions get them here.
-		const added = [
-			this.addColumn('cycles', 'timezone_offset', 'TEXT'),
-			this.addColumn('sleep', 'timezone_offset', 'TEXT'),
-			this.addColumn('workouts', 'sport_name', 'TEXT'),
-			this.addColumn('workouts', 'timezone_offset', 'TEXT'),
-		];
-		if (added.includes(true)) {
-			// Rows synced before these columns existed have no timezone, and 1.0.0 never stored
-			// workouts. Forgetting the last sync makes the next one pull the full 90 days again.
-			this.db.prepare('UPDATE sync_state SET last_sync_at = NULL WHERE id = 1').run();
-		}
+		// table, so databases from earlier versions get them here. One transaction, so a
+		// server that stops half way redoes all of it on the next start, re-sync included.
+		this.db.transaction(() => {
+			const added = [
+				this.addColumn('cycles', 'timezone_offset', 'TEXT'),
+				this.addColumn('sleep', 'timezone_offset', 'TEXT'),
+				this.addColumn('workouts', 'sport_name', 'TEXT'),
+				this.addColumn('workouts', 'timezone_offset', 'TEXT'),
+			];
+			if (added.includes(true)) {
+				// Rows synced before these columns existed have no timezone, and 1.0.0 never stored
+				// workouts. Forgetting the last sync makes the next one pull the full 90 days again.
+				this.db.prepare('UPDATE sync_state SET last_sync_at = NULL WHERE id = 1').run();
+			}
+		})();
 	}
 
 	/** Returns true if the column had to be added. */

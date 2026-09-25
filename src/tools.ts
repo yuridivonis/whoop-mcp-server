@@ -116,7 +116,7 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri, mod
 			},
 			{
 				name: 'get_sleep_analysis',
-				description: 'Get detailed sleep analysis including duration, stages, efficiency, and sleep debt.',
+				description: 'Get sleep trends: time asleep, performance, and efficiency for each night, with averages.',
 				inputSchema: {
 					type: 'object',
 					properties: { days: { type: 'number', description: 'Number of days to analyze (default: 14, max: 90)' } },
@@ -199,8 +199,9 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri, mod
 
 					if (sleep) {
 						// Time asleep is the sum of the stages. In bed minus awake would also count
-						// the time the strap recorded no data.
-						const totalSleep = (sleep.total_light_milli ?? 0) + (sleep.total_deep_milli ?? 0) + (sleep.total_rem_milli ?? 0);
+						// the time the strap recorded no data. A missing stage shows N/A, as in get_sleep_analysis.
+						const { total_light_milli: light, total_deep_milli: deep, total_rem_milli: rem } = sleep;
+						const totalSleep = light === null || deep === null || rem === null ? null : light + deep + rem;
 						response += `## Last Night's Sleep\n`;
 						response += `- **Total Sleep**: ${formatDuration(totalSleep)}\n`;
 						response += `- **Performance**: ${sleep.sleep_performance?.toFixed(0) ?? 'N/A'}%\n`;

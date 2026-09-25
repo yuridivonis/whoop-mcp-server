@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The format follows [Kee
 ### Fixed
 
 - **Time asleep:** total sleep in `get_today` and `get_sleep_analysis` also counted the time the strap recorded no data. It's now the sum of light, deep, and REM sleep. Thanks to @nkondratyk93, who spotted this in #2. (#9)
+- **Sleep tool description:** `get_sleep_analysis` said it covered stages and sleep debt, which it doesn't report. It now describes what it shows: time asleep, performance, and efficiency. (#9)
 
 ## [1.1.0] - 2026-09-25
 

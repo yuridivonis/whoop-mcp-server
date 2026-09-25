@@ -173,6 +173,45 @@ describe('data tools', () => {
 	});
 });
 
+describe('time asleep', () => {
+	it('shows N/A rather than a partial total when a sleep stage is missing', async t => {
+		const db = memoryDb(t);
+		db.saveTokens({ access_token: 'whoop-access', refresh_token: 'whoop-refresh', expires_at: Date.now() + HOUR });
+		const fellAsleep = new Date(utcMidnight(-1) + 15.5 * HOUR).toISOString();
+		const wokeUp = new Date(utcMidnight(-1) + 23 * HOUR).toISOString();
+		// Whoop left out the REM stage.
+		db.upsertSleeps([{
+			id: 'sleep-partial', user_id: 1, created_at: wokeUp, updated_at: wokeUp, start: fellAsleep, end: wokeUp,
+			timezone_offset: '+08:00', nap: false, score_state: 'SCORED',
+			score: {
+				stage_summary: {
+					total_in_bed_time_milli: 27_000_000, total_awake_time_milli: 1_800_000, total_no_data_time_milli: 0,
+					total_light_sleep_time_milli: 12_000_000, total_slow_wave_sleep_time_milli: 7_000_000,
+				},
+				sleep_performance_percentage: 95,
+			},
+		} as unknown as WhoopSleep]);
+
+		const server = createMcpServer({
+			db,
+			client: {} as WhoopClient,
+			sync: { smartSync: async () => ({ type: 'skip' }) } as unknown as WhoopSync,
+			authStates: new PendingAuthStates(),
+			redirectUri: 'http://localhost:3000/callback',
+			mode: 'stdio',
+		});
+		const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+		await server.connect(serverSide);
+		const client = new Client({ name: 'test', version: '0' });
+		await client.connect(clientSide);
+		t.after(() => client.close());
+
+		const result = await client.callTool({ name: 'get_today', arguments: {} });
+		const [{ text }] = result.content as { text: string }[];
+		assert.match(text, /\*\*Total Sleep\*\*: N\/A/);
+	});
+});
+
 describe('stdio mode', () => {
 	it('explains how to connect Whoop instead of issuing a link it can\'t receive', async t => {
 		const server = createMcpServer({

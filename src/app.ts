@@ -4,11 +4,17 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
 import type { Config } from './config.js';
-import { McpAuthProvider, revokeSignInsIfPasswordChanged } from './auth/provider.js';
+import { McpAuthProvider, signInGeneration } from './auth/provider.js';
 import { createMcpServer, type ToolDeps } from './tools.js';
 
 export interface AppDeps extends Omit<ToolDeps, 'redirectUri'> {
 	config: Config;
+	/** Where sign-in events go; the server log by default. */
+	log?: (line: string) => void;
+}
+
+function logToStdout(line: string): void {
+	process.stdout.write(`${line}\n`);
 }
 
 function jsonRpcError(res: Response, status: number, message: string): void {
@@ -35,18 +41,26 @@ function acceptEventStream(req: Request, _res: Response, next: NextFunction): vo
 	next();
 }
 
-export function createApp({ config, db, client, sync, authStates }: AppDeps): express.Express {
+export function createApp({ config, db, client, sync, authStates, log = logToStdout }: AppDeps): express.Express {
 	const app = express();
 	// The rate limits below need the client's address; see TRUST_PROXY in config.ts.
 	app.set('trust proxy', config.trustProxy);
 	app.use(express.json());
 
-	if (revokeSignInsIfPasswordChanged(db, config.authPassword)) {
-		process.stderr.write('MCP_AUTH_PASSWORD changed: every client has been signed out and must sign in again.\n');
+	const { generation, passwordChanged } = signInGeneration(db, config.authPassword);
+	if (passwordChanged) {
+		log('MCP_AUTH_PASSWORD changed: every client has been signed out and must sign in again.');
 	}
 
 	const mcpUrl = new URL('/mcp', config.publicUrl);
-	const provider = new McpAuthProvider({ db, password: config.authPassword, resourceUrl: mcpUrl });
+	const provider = new McpAuthProvider({
+		db,
+		password: config.authPassword,
+		generation,
+		resourceUrl: mcpUrl,
+		allowedRedirectHosts: config.allowedRedirectHosts,
+		log,
+	});
 
 	// SECURITY: forkers choose their own passwords, so failed sign-ins are limited per
 	// address and in total. Successful sign-ins (a redirect) do not count. Mounted with
@@ -103,8 +117,9 @@ export function createApp({ config, db, client, sync, authStates }: AppDeps): ex
 		}
 	});
 
+	// Public, so it says nothing about the owner's data or Whoop connection.
 	app.get('/health', (_req: Request, res: Response) => {
-		res.json({ status: 'ok', authenticated: Boolean(db.getTokens()) });
+		res.json({ status: 'ok' });
 	});
 
 	// Stateless Streamable HTTP: every request gets its own server and transport, so there

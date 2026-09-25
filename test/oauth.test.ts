@@ -1,8 +1,10 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import Database from 'better-sqlite3';
 import {
 	CLIENT_REDIRECT_URI,
 	INITIALIZE,
@@ -14,6 +16,7 @@ import {
 	postToken,
 	readRpc,
 	registerClient,
+	registrationRequest,
 	signIn,
 	startTestServer,
 	submitPassword,
@@ -97,6 +100,18 @@ describe('sign-in protects /mcp', () => {
 			assert.equal(res.status, 302, resource);
 			assert.equal(new URL(res.headers.get('location') ?? '').searchParams.get('error'), 'invalid_target', resource);
 		}
+	});
+
+	it('answers /health without revealing anything about the owner', async () => {
+		const res = await fetch(`${server.baseUrl}/health`);
+		assert.deepEqual(await res.json(), { status: 'ok' });
+	});
+
+	it('accepts the bare server address as the resource, as ChatGPT may send it', async () => {
+		const clientId = await registerClient(server.baseUrl);
+		const params = authorizeParams(clientId, pkcePair().challenge, { resource: server.baseUrl });
+		const res = await submitPassword(server.baseUrl, params, PASSWORD);
+		assert.ok(new URL(res.headers.get('location') ?? '').searchParams.get('code'));
 	});
 
 	it('accepts this server\'s own /mcp as the resource', async () => {
@@ -390,45 +405,169 @@ describe('refresh-token replay detection', () => {
 	});
 });
 
+/** Runs a test against a database file that outlives one server. */
+async function withDatabaseFile(test: (dbPath: string) => Promise<void>): Promise<void> {
+	const dir = mkdtempSync(join(tmpdir(), 'whoop-mcp-test-'));
+	try {
+		await test(join(dir, 'whoop.db'));
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
 describe('sign-in state', () => {
-	it('is revoked for every client when MCP_AUTH_PASSWORD changes', async t => {
-		t.mock.method(process.stderr, 'write', () => true); // the expected "signed out" notice
-		const dir = mkdtempSync(join(tmpdir(), 'whoop-mcp-test-'));
-		const dbPath = join(dir, 'whoop.db');
-		try {
-			const first = await startTestServer(dbPath);
-			const { tokens } = await signIn(first.baseUrl);
-			await first.close();
-
-			const second = await startTestServer(dbPath, 'a completely new password');
-			try {
-				assert.equal((await mcpRequest(second.baseUrl, tokens.access_token, INITIALIZE)).status, 401);
-				const refresh = await postToken(second.baseUrl, { grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: 'any' });
-				assert.equal(refresh.status, 400);
-			} finally {
-				await second.close();
-			}
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
-	});
-
 	it('survives a restart, so a redeploy does not sign Claude out', async () => {
-		const dir = mkdtempSync(join(tmpdir(), 'whoop-mcp-test-'));
-		const dbPath = join(dir, 'whoop.db');
-		try {
-			const first = await startTestServer(dbPath);
+		await withDatabaseFile(async dbPath => {
+			const first = await startTestServer({ dbPath });
 			const { tokens } = await signIn(first.baseUrl);
 			await first.close();
 
-			const second = await startTestServer(dbPath);
+			const second = await startTestServer({ dbPath });
 			try {
 				assert.equal((await mcpRequest(second.baseUrl, tokens.access_token, INITIALIZE)).status, 200);
 			} finally {
 				await second.close();
 			}
+		});
+	});
+
+	it('is revoked for every client when MCP_AUTH_PASSWORD changes', async () => {
+		await withDatabaseFile(async dbPath => {
+			const first = await startTestServer({ dbPath });
+			const { clientId, tokens } = await signIn(first.baseUrl);
+			await first.close();
+
+			const logged: string[] = [];
+			const second = await startTestServer({ dbPath, password: 'a completely new password', log: line => logged.push(line) });
+			try {
+				assert.equal((await mcpRequest(second.baseUrl, tokens.access_token, INITIALIZE)).status, 401);
+				const refresh = await postToken(second.baseUrl, { grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: clientId });
+				assert.equal(refresh.status, 400);
+				assert.ok(logged.some(line => line.includes('MCP_AUTH_PASSWORD changed')), 'the sign-out should be logged');
+			} finally {
+				await second.close();
+			}
+		});
+	});
+
+	it('does not accept sign-ins from a server still running with the old password', async () => {
+		await withDatabaseFile(async dbPath => {
+			const stale = await startTestServer({ dbPath });
+			const current = await startTestServer({ dbPath, password: 'a completely new password' });
+			try {
+				// The stale server still accepts the old password and issues tokens into the shared database...
+				const { clientId, tokens } = await signIn(stale.baseUrl);
+				// ...but they carry the old generation, so the current server refuses them.
+				assert.equal((await mcpRequest(current.baseUrl, tokens.access_token, INITIALIZE)).status, 401);
+				const refresh = await postToken(current.baseUrl, { grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: clientId });
+				assert.equal(refresh.status, 400);
+			} finally {
+				await stale.close();
+				await current.close();
+			}
+		});
+	});
+
+	it('signs clients out once when upgrading a database from before sign-in generations', async () => {
+		await withDatabaseFile(async dbPath => {
+			// The sign-in tables as an earlier 1.1.0 build created them, with a live access token.
+			const legacy = new Database(dbPath);
+			legacy.exec(`
+				CREATE TABLE oauth_codes (code_hash TEXT PRIMARY KEY, family_id TEXT NOT NULL, client_id TEXT NOT NULL,
+					code_challenge TEXT NOT NULL, redirect_uri TEXT NOT NULL, scopes TEXT NOT NULL, expires_at INTEGER NOT NULL, consumed_at INTEGER);
+				CREATE TABLE oauth_tokens (token_hash TEXT PRIMARY KEY, family_id TEXT NOT NULL, kind TEXT NOT NULL,
+					client_id TEXT NOT NULL, scopes TEXT NOT NULL, expires_at INTEGER NOT NULL, consumed_at INTEGER);
+			`);
+			legacy.prepare('INSERT INTO oauth_tokens VALUES (?, ?, ?, ?, ?, ?, NULL)')
+				.run(createHash('sha256').update('legacy-access-token').digest('hex'), 'family', 'access', 'client', '', Date.now() + 3_600_000);
+			legacy.close();
+
+			const server = await startTestServer({ dbPath });
+			try {
+				assert.equal((await mcpRequest(server.baseUrl, 'legacy-access-token', INITIALIZE)).status, 401);
+				const { tokens } = await signIn(server.baseUrl);
+				assert.equal((await mcpRequest(server.baseUrl, tokens.access_token, INITIALIZE)).status, 200);
+			} finally {
+				await server.close();
+			}
+		});
+	});
+});
+
+describe('where sign-in codes may be sent', () => {
+	let server: TestServer;
+
+	before(async () => {
+		server = await startTestServer({ env: { MCP_ALLOWED_REDIRECT_HOSTS: 'mcp-client.example' } });
+	});
+
+	after(async () => {
+		await server.close();
+	});
+
+	it('refuses to register a web client that is not on the allowlist', async () => {
+		for (const uri of ['https://attacker.example/callback', 'http://attacker.example/callback']) {
+			const res = await registrationRequest(server.baseUrl, [uri]);
+			assert.equal(res.status, 400, uri);
+			const body = await res.json() as { error: string; error_description: string };
+			assert.equal(body.error, 'invalid_client_metadata');
+			assert.match(body.error_description, /MCP_ALLOWED_REDIRECT_HOSTS/);
+		}
+	});
+
+	it('registers Claude, ChatGPT, apps on this device, and hosts added with MCP_ALLOWED_REDIRECT_HOSTS', async () => {
+		const allowed = [
+			'https://claude.ai/api/mcp/auth_callback',
+			'https://claude.com/api/mcp/auth_callback',
+			'https://chatgpt.com/connector_platform_oauth_redirect',
+			'http://127.0.0.1:33418/callback',
+			'http://localhost:8787/callback',
+			'cursor://anysphere.cursor-mcp/oauth/callback',
+			'https://mcp-client.example/oauth/callback',
+		];
+		for (const uri of allowed) {
+			assert.equal((await registrationRequest(server.baseUrl, [uri])).status, 201, uri);
+		}
+	});
+
+	it('refuses to sign in a client that was registered before the allowlist', async () => {
+		const clientId = 'registered-before-the-allowlist';
+		const redirectUri = 'https://attacker.example/callback';
+		server.db.saveOAuthClient(clientId, JSON.stringify({ client_id: clientId, redirect_uris: [redirectUri], token_endpoint_auth_method: 'none' }));
+		const params = authorizeParams(clientId, pkcePair().challenge, { redirect_uri: redirectUri });
+
+		const page = await fetch(`${server.baseUrl}/authorize?${params}`);
+		assert.equal(page.status, 400);
+		assert.match(await page.text(), /attacker\.example/);
+
+		const res = await submitPassword(server.baseUrl, params, PASSWORD);
+		assert.equal(res.status, 400);
+		assert.equal(res.headers.get('location'), null);
+	});
+
+	it('shows where you will return, and asks you to sign in only if you started it', async () => {
+		const redirectUri = 'https://claude.ai/api/mcp/auth_callback';
+		const clientId = await registerClient(server.baseUrl, redirectUri);
+		const page = await fetch(`${server.baseUrl}/authorize?${authorizeParams(clientId, pkcePair().challenge, { redirect_uri: redirectUri })}`);
+		const html = await page.text();
+		assert.match(html, /return to <strong>claude\.ai<\/strong>/);
+		assert.match(html, /If someone sent you this link, close this page/);
+
+		const localClient = await registerClient(server.baseUrl);
+		const localPage = await (await fetch(`${server.baseUrl}/authorize?${authorizeParams(localClient, pkcePair().challenge)}`)).text();
+		assert.match(localPage, /return to <strong>an app on this computer<\/strong>/);
+	});
+});
+
+describe('sign-in log', () => {
+	it('records each successful sign-in with the app and where it returned', async () => {
+		const logged: string[] = [];
+		const server = await startTestServer({ log: line => logged.push(line) });
+		try {
+			await signIn(server.baseUrl);
+			assert.deepEqual(logged, ['Signed in: Test Client, returning to an app on this computer']);
 		} finally {
-			rmSync(dir, { recursive: true, force: true });
+			await server.close();
 		}
 	});
 });

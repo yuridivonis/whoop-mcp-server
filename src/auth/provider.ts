@@ -3,7 +3,12 @@ import type { Response } from 'express';
 import type { AuthorizationParams, OAuthServerProvider } from '@modelcontextprotocol/sdk/server/auth/provider.js';
 import type { OAuthRegisteredClientsStore } from '@modelcontextprotocol/sdk/server/auth/clients.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
-import { InvalidGrantError, InvalidTargetError, InvalidTokenError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
+import {
+	InvalidClientMetadataError,
+	InvalidGrantError,
+	InvalidTargetError,
+	InvalidTokenError,
+} from '@modelcontextprotocol/sdk/server/auth/errors.js';
 import { checkResourceAllowed } from '@modelcontextprotocol/sdk/shared/auth-utils.js';
 import type {
 	OAuthClientInformationFull,
@@ -11,7 +16,8 @@ import type {
 	OAuthTokens,
 } from '@modelcontextprotocol/sdk/shared/auth.js';
 import type { WhoopDatabase } from '../database.js';
-import { sendLoginPage } from './login-page.js';
+import { sendLoginPage, sendSignInError } from './login-page.js';
+import { describeRedirect, redirectAllowed, redirectHost } from './redirects.js';
 
 // Codes are exchanged seconds after the redirect; anything older is suspect.
 const AUTH_CODE_TTL_MS = 5 * 60 * 1000;
@@ -34,37 +40,65 @@ function passwordMatches(candidate: string, expected: string): boolean {
 	return timingSafeEqual(a, b);
 }
 
-const PASSWORD_FINGERPRINT = 'mcp_auth_password_fingerprint';
+const PASSWORD_RECORD = 'mcp_auth_password';
+
+interface PasswordRecord {
+	salt: string;
+	hash: string;
+	generation: string;
+}
+
+function readPasswordRecord(value: string | undefined): PasswordRecord | null {
+	try {
+		const record = JSON.parse(value ?? '') as Partial<PasswordRecord>;
+		if (typeof record.salt === 'string' && typeof record.hash === 'string' && typeof record.generation === 'string') {
+			return record as PasswordRecord;
+		}
+	} catch {
+		// Missing or unreadable: treated as a password change.
+	}
+	return null;
+}
+
+function fingerprint(password: string, salt: string): Buffer {
+	return scryptSync(password, Buffer.from(salt, 'hex'), 32);
+}
 
 /**
- * Signs every client out when MCP_AUTH_PASSWORD has changed since the last start, so
- * rotating a leaked password also cuts off whoever used it. Stores a salted scrypt
- * fingerprint of the password, never the password itself. Returns true if it signed
- * clients out.
+ * The sign-in generation for the current MCP_AUTH_PASSWORD.
+ *
+ * SECURITY: every code and token carries the generation it was issued under, and only the
+ * current one is accepted. A new password starts a new generation, which signs every client
+ * out, including clients of a server that is still running with the old password. Only a
+ * salted scrypt fingerprint of the password is stored, never the password itself.
  */
-export function revokeSignInsIfPasswordChanged(db: WhoopDatabase, password: string): boolean {
-	const stored = db.getSetting(PASSWORD_FINGERPRINT);
+export function signInGeneration(db: WhoopDatabase, password: string): { generation: string; passwordChanged: boolean } {
+	const stored = readPasswordRecord(db.getSetting(PASSWORD_RECORD));
 	if (stored) {
-		const [salt, hash] = stored.split(':');
-		const expected = Buffer.from(hash ?? '', 'hex');
-		const actual = scryptSync(password, Buffer.from(salt, 'hex'), 32);
-		if (expected.length === actual.length && timingSafeEqual(expected, actual)) return false;
+		const expected = Buffer.from(stored.hash, 'hex');
+		const actual = fingerprint(password, stored.salt);
+		if (expected.length === actual.length && timingSafeEqual(expected, actual)) {
+			return { generation: stored.generation, passwordChanged: false };
+		}
 	}
 
-	const salt = randomBytes(16);
-	db.setSetting(PASSWORD_FINGERPRINT, `${salt.toString('hex')}:${scryptSync(password, salt, 32).toString('hex')}`);
-	// The first start with a fingerprint (a new install, or an upgrade) has nothing to compare.
-	if (!stored) return false;
-
-	db.deleteAllOAuthGrants();
-	return true;
+	const salt = randomBytes(16).toString('hex');
+	const record: PasswordRecord = { salt, hash: fingerprint(password, salt).toString('hex'), generation: randomUUID() };
+	db.startSignInGeneration(PASSWORD_RECORD, JSON.stringify(record));
+	return { generation: record.generation, passwordChanged: stored !== null };
 }
 
 interface McpAuthProviderOptions {
 	db: WhoopDatabase;
 	password: string;
+	/** From signInGeneration(); stamped on every code and token. */
+	generation: string;
 	/** The /mcp URL. Tokens are only issued for this server. */
 	resourceUrl: URL;
+	/** Web clients whose redirect addresses are allowed; see redirects.ts. */
+	allowedRedirectHosts: string[];
+	/** Records each successful sign-in, so the owner can spot one they didn't make. */
+	log: (line: string) => void;
 }
 
 /**
@@ -77,17 +111,24 @@ interface McpAuthProviderOptions {
  *
  * SECURITY: each sign-in starts a token family. Codes and refresh tokens work once; a
  * second use means one of them leaked, so the whole family is revoked, cutting off
- * whoever used it first (RFC 9700 §4.14.2).
+ * whoever used it first (RFC 9700 §4.14.2). Codes only go to allowed redirect addresses
+ * (redirects.ts), and only grants from the current sign-in generation are accepted.
  */
 export class McpAuthProvider implements OAuthServerProvider {
 	private readonly db: WhoopDatabase;
 	private readonly password: string;
+	private readonly generation: string;
 	private readonly resourceUrl: URL;
+	private readonly allowedRedirectHosts: string[];
+	private readonly log: (line: string) => void;
 
 	constructor(options: McpAuthProviderOptions) {
 		this.db = options.db;
 		this.password = options.password;
+		this.generation = options.generation;
 		this.resourceUrl = options.resourceUrl;
+		this.allowedRedirectHosts = options.allowedRedirectHosts;
+		this.log = options.log;
 	}
 
 	get clientsStore(): OAuthRegisteredClientsStore {
@@ -97,6 +138,14 @@ export class McpAuthProvider implements OAuthServerProvider {
 				return info ? JSON.parse(info) as OAuthClientInformationFull : undefined;
 			},
 			registerClient: client => {
+				for (const uri of client.redirect_uris) {
+					if (!redirectAllowed(uri, this.allowedRedirectHosts)) {
+						const host = redirectHost(uri);
+						throw new InvalidClientMetadataError(
+							`Redirect address ${host} is not allowed. To use this client, add ${host} to MCP_ALLOWED_REDIRECT_HOSTS.`,
+						);
+					}
+				}
 				// The SDK's registration handler normally assigns the id; the defaults are a fallback.
 				const full: OAuthClientInformationFull = {
 					client_id: randomUUID(),
@@ -112,16 +161,22 @@ export class McpAuthProvider implements OAuthServerProvider {
 	// SECURITY: the SDK has already checked client_id and redirect_uri against the
 	// registered client before this runs. Failed password attempts are rate-limited in app.ts.
 	async authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response): Promise<void> {
+		// Checked here as well as at registration, so clients registered before the allowlist are covered.
+		if (!redirectAllowed(params.redirectUri, this.allowedRedirectHosts)) {
+			sendSignInError(res, `This app wants to send you to ${redirectHost(params.redirectUri)}, which this server doesn't allow. Nothing was shared.`);
+			return;
+		}
 		this.checkResource(params.resource);
 
+		const destination = describeRedirect(params.redirectUri);
 		const body = res.req.method === 'POST' ? res.req.body as { password?: unknown } : undefined;
 		if (body?.password === undefined) {
-			sendLoginPage(res, { client, params });
+			sendLoginPage(res, { client, params, destination });
 			return;
 		}
 
 		if (typeof body.password !== 'string' || !passwordMatches(body.password, this.password)) {
-			sendLoginPage(res, { client, params, error: 'Incorrect password.', status: 401 });
+			sendLoginPage(res, { client, params, destination, error: 'Incorrect password.', status: 401 });
 			return;
 		}
 
@@ -129,6 +184,7 @@ export class McpAuthProvider implements OAuthServerProvider {
 		this.db.saveOAuthCode({
 			code_hash: hashSecret(code),
 			family_id: randomUUID(),
+			generation: this.generation,
 			client_id: client.client_id,
 			code_challenge: params.codeChallenge,
 			redirect_uri: params.redirectUri,
@@ -141,12 +197,13 @@ export class McpAuthProvider implements OAuthServerProvider {
 		if (params.state) {
 			redirectUrl.searchParams.set('state', params.state);
 		}
+		this.log(`Signed in: ${client.client_name ?? client.client_id}, returning to ${destination}`);
 		res.redirect(302, redirectUrl.href);
 	}
 
 	async challengeForAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string): Promise<string> {
 		const stored = this.db.getOAuthCode(hashSecret(authorizationCode));
-		if (!stored || stored.client_id !== client.client_id) {
+		if (!stored || stored.client_id !== client.client_id || stored.generation !== this.generation) {
 			throw new InvalidGrantError('Invalid authorization code');
 		}
 		if (stored.consumed_at !== null) {
@@ -172,10 +229,10 @@ export class McpAuthProvider implements OAuthServerProvider {
 			// The code is unknown, or a second exchange raced past the PKCE check; in that
 			// case, revoke what the first exchange received.
 			const used = this.db.getOAuthCode(codeHash);
-			if (used) this.db.deleteOAuthFamily(used.family_id);
+			if (used?.generation === this.generation) this.db.deleteOAuthFamily(used.family_id);
 			throw new InvalidGrantError('Invalid authorization code');
 		}
-		if (stored.client_id !== client.client_id) {
+		if (stored.client_id !== client.client_id || stored.generation !== this.generation) {
 			throw new InvalidGrantError('Invalid authorization code');
 		}
 		if (stored.expires_at < Date.now()) {
@@ -196,11 +253,11 @@ export class McpAuthProvider implements OAuthServerProvider {
 		this.checkResource(resource);
 
 		const tokenHash = hashSecret(refreshToken);
-		const stored = this.db.consumeRefreshToken(tokenHash, client.client_id, Date.now());
+		const stored = this.db.consumeRefreshToken(tokenHash, client.client_id, this.generation, Date.now());
 		if (!stored) {
 			// A spent refresh token presented again has leaked: revoke its whole family.
 			const used = this.db.getOAuthToken(tokenHash, 'refresh');
-			if (used?.consumed_at != null) {
+			if (used?.consumed_at != null && used.generation === this.generation) {
 				this.db.deleteOAuthFamily(used.family_id);
 			}
 			throw new InvalidGrantError('Invalid refresh token');
@@ -213,7 +270,7 @@ export class McpAuthProvider implements OAuthServerProvider {
 
 	async verifyAccessToken(token: string): Promise<AuthInfo> {
 		const stored = this.db.getOAuthToken(hashSecret(token), 'access');
-		if (!stored || stored.expires_at < Date.now()) {
+		if (!stored || stored.generation !== this.generation || stored.expires_at < Date.now()) {
 			throw new InvalidTokenError('Invalid or expired access token');
 		}
 		return {
@@ -238,9 +295,13 @@ export class McpAuthProvider implements OAuthServerProvider {
 		}
 	}
 
-	/** Tokens are only ever issued for this server's own /mcp endpoint (RFC 8707). */
+	/**
+	 * Tokens are only ever issued for this server (RFC 8707): its /mcp endpoint, or its bare
+	 * origin, which ChatGPT may send instead.
+	 */
 	private checkResource(resource: URL | undefined): void {
-		if (resource && !checkResourceAllowed({ requestedResource: resource, configuredResource: this.resourceUrl })) {
+		if (!resource || resource.href === new URL('/', this.resourceUrl).href) return;
+		if (!checkResourceAllowed({ requestedResource: resource, configuredResource: this.resourceUrl })) {
 			throw new InvalidTargetError(`This server only issues tokens for ${this.resourceUrl.href}`);
 		}
 	}
@@ -252,6 +313,7 @@ export class McpAuthProvider implements OAuthServerProvider {
 		this.db.saveOAuthToken({
 			token_hash: hashSecret(accessToken),
 			family_id: familyId,
+			generation: this.generation,
 			kind: 'access',
 			client_id: clientId,
 			scopes,
@@ -260,6 +322,7 @@ export class McpAuthProvider implements OAuthServerProvider {
 		this.db.saveOAuthToken({
 			token_hash: hashSecret(refreshToken),
 			family_id: familyId,
+			generation: this.generation,
 			kind: 'refresh',
 			client_id: clientId,
 			scopes,

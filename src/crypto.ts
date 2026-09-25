@@ -11,7 +11,7 @@ const KEY_LENGTH = 32;
 const IV_LENGTH = 16;
 
 // scrypt is slow on purpose (~20 ms, blocking), so derive the key once per secret rather
-// than on every call: /health decrypts the tokens and needs no sign-in.
+// than on every call: every data tool reads the stored tokens.
 let cachedKey: { secret: string; key: Buffer } | null = null;
 
 function getEncryptionKey(): Buffer {

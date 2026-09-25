@@ -3,7 +3,7 @@
 [![CI](https://github.com/yuridivonis/whoop-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/yuridivonis/whoop-mcp-server/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-A Model Context Protocol (MCP) server that connects your Whoop health data to Claude. You host it yourself and add it to Claude.ai as a custom connector: your data stays on your server, and Claude signs in with a password you choose.
+A Model Context Protocol (MCP) server that connects your Whoop health data to Claude. You host it yourself and add it to Claude.ai as a custom connector. Your data is stored on your own server, Claude signs in with a password you choose, and it receives only the answers to the tools it calls.
 
 Built on the [Whoop Developer API v2](https://developer.whoop.com/docs/introduction).
 
@@ -61,6 +61,8 @@ Built on the [Whoop Developer API v2](https://developer.whoop.com/docs/introduct
 
 Claude stays signed in across redeploys. Anyone without the password gets `401 Unauthorized` from `/mcp`.
 
+**Using another MCP client?** ChatGPT and apps on your own computer, such as Claude Code, Cursor, or VS Code, can sign in the same way. Other web-based clients need their host name in `MCP_ALLOWED_REDIRECT_HOSTS` first.
+
 ### 4. Connect your Whoop account
 
 1. In a chat, ask Claude to connect Whoop. It calls `get_auth_url` and gives you a link.
@@ -84,6 +86,7 @@ If your 1.0.0 server worked with Claude on a public URL, assume your data could 
 
 - `/mcp` only answers signed-in clients. Sign-in codes and refresh tokens work once and are stored as hashes; if one is ever used twice, the whole sign-in is revoked.
 - Failed sign-ins are limited to 10 per address every 15 minutes, and 50 per hour in total.
+- Sign-in codes only go to Claude, ChatGPT, apps on your own device, or web clients you add with `MCP_ALLOWED_REDIRECT_HOSTS`. The sign-in page shows where you'll return: only sign in if you started the connection yourself.
 - Whoop tokens are encrypted at rest (AES-256-GCM). Your health data stays in your server's database and is only sent to the client you signed in.
 - Changing `MCP_AUTH_PASSWORD` signs every client out.
 
@@ -91,7 +94,7 @@ See [SECURITY.md](SECURITY.md) for the full security model and how to report a v
 
 ## Using the Whoop API
 
-When you deploy this server, you register your own Whoop developer app, so you are the developer under WHOOP's [API Terms of Use](https://developer.whoop.com/api-terms-of-use/) and responsible for following them. Among other things, the terms prohibit using WHOOP data to create, train, test, or improve AI or machine-learning models or systems (§4.2(c)), and require you to report a security incident to WHOOP within 48 hours (§2.4). Read them before you deploy.
+When you deploy this server, you register your own Whoop developer app, so you are the developer under WHOOP's [API Terms of Use](https://developer.whoop.com/api-terms-of-use/) and responsible for following them. Among other things, unless the owner of the WHOOP data or applicable law allows it, the terms prohibit using WHOOP data to create, train, test, or improve AI or machine-learning models or systems (§4.2(c)). They also require you to report a security incident to WHOOP within 48 hours (§2.4). Read them before you deploy.
 
 ## Local Development
 
@@ -128,6 +131,7 @@ npm run typecheck
 | `MCP_AUTH_PASSWORD` | Password for the sign-in page that protects `/mcp` (16+ characters) | Required in `http` mode |
 | `PUBLIC_URL` | Public address of the server, if it differs from `WHOOP_REDIRECT_URI`'s. Claude must connect to `PUBLIC_URL/mcp`. | Origin of `WHOOP_REDIRECT_URI` |
 | `ENCRYPTION_SECRET` | Key for encrypting stored Whoop tokens | `WHOOP_CLIENT_SECRET` |
+| `MCP_ALLOWED_REDIRECT_HOSTS` | Extra web clients allowed to receive sign-in codes, as host names separated by commas (e.g. `app.example.com`). Claude, ChatGPT, and apps on your own device are always allowed. | None |
 | `TRUST_PROXY` | Proxies allowed to report the client's IP (used by the sign-in rate limits): a hop count, `false`, or addresses/subnets | `1` on Railway, otherwise `false` |
 | `DB_PATH` | SQLite database path | `./whoop.db` |
 | `PORT` | HTTP server port | `3000` |

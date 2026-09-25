@@ -53,6 +53,22 @@ describe('loadConfig', () => {
 		assert.throws(() => loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, TRUST_PROXY: 'true' }), /TRUST_PROXY/);
 	});
 
+	it('allows Claude and ChatGPT as sign-in destinations by default', () => {
+		assert.deepEqual(loadConfig({ MCP_AUTH_PASSWORD: PASSWORD }).allowedRedirectHosts, ['claude.ai', 'claude.com', 'chatgpt.com']);
+	});
+
+	it('adds hosts from MCP_ALLOWED_REDIRECT_HOSTS', () => {
+		const config = loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, MCP_ALLOWED_REDIRECT_HOSTS: ' Mcp-Client.example, claude.ai ,' });
+		assert.deepEqual(config.allowedRedirectHosts, ['claude.ai', 'claude.com', 'chatgpt.com', 'mcp-client.example']);
+	});
+
+	it('refuses MCP_ALLOWED_REDIRECT_HOSTS entries that are not host names', () => {
+		assert.throws(
+			() => loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, MCP_ALLOWED_REDIRECT_HOSTS: 'https://example.com/callback' }),
+			/MCP_ALLOWED_REDIRECT_HOSTS/,
+		);
+	});
+
 	it('refuses a plain-http public URL outside localhost', () => {
 		assert.throws(
 			() => loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, PUBLIC_URL: 'http://my-app.example.com' }),

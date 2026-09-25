@@ -11,7 +11,9 @@ Upgrading takes a few minutes: see [Upgrading from 1.0.0](README.md#upgrading-fr
 - **Sign-in required:** `/mcp` now requires sign-in. In 1.0.0, any server that worked with Claude served its Whoop data and tools to anyone who knew its URL. Claude.ai now signs in with OAuth 2.1 (client registration, PKCE) using a password you choose, `MCP_AUTH_PASSWORD`, and the server refuses to start without one. (#5)
 - **Token handling:** sign-in tokens are stored as hashes, rotate on every refresh, and are only issued for this server. Reusing a code or refresh token revokes the whole sign-in, and failed sign-ins are rate-limited. (#5)
 - **Whoop links:** the Whoop authorization callback only accepts one-time links issued by `get_auth_url`. (#5)
-- **Password changes:** changing `MCP_AUTH_PASSWORD` signs every client out. (#6)
+- **Password changes:** changing `MCP_AUTH_PASSWORD` signs every client out, including clients of a server still running with the old password. (#6)
+- **Where sign-in codes go:** codes are only sent to Claude, ChatGPT, apps on your own device, or web clients you add with `MCP_ALLOWED_REDIRECT_HOSTS`. The sign-in page shows where you'll return, and warns against signing in from a link someone else sent. (#6)
+- **Health check:** `/health` no longer reveals whether a Whoop account is connected. (#6)
 - **SDK update:** `@modelcontextprotocol/sdk` is updated to 1.26 or later, for GHSA-345p-7cg4-v4c7 and GHSA-8r9q-7v3j-jr4g. This server didn't use the affected features, but scanners flagged the old version. (#5)
 - **Docker image:** it now runs on Node 24. It used Node 20, which no longer receives security updates. better-sqlite3 is upgraded to 13 alongside, because older versions can crash the process on Node 24.19 and later ([nodejs/node#65446](https://github.com/nodejs/node/issues/65446)). (#6)
 
@@ -36,6 +38,9 @@ Upgrading takes a few minutes: see [Upgrading from 1.0.0](README.md#upgrading-fr
 - **Syncs:** syncs never overlap, and failed syncs are written to the server log. (#5)
 - **Stale data:** tools say when data couldn't be refreshed, instead of silently showing the last sync. (#5)
 - **Node version:** Node.js 22 or later is required. (#6)
+- **Sign-in log:** each successful sign-in is written to the server log, with the app's name and where it returned. (#6)
+- **ChatGPT compatibility:** the server accepts its bare address as the OAuth resource, which ChatGPT may send. (#6)
+- **One-time sign-out:** a server that ran `main` before #6 signs its clients out once when it upgrades. (#6)
 - **Local development:** `npm run dev` loads `.env`. (#5)
 
 ### Removed

@@ -1,8 +1,8 @@
 {
   "name": "whoop-mcp-server",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "private": true,
-  "description": "MCP server for Whoop health data integration",
+  "description": "Your WHOOP recovery, sleep, strain and workouts in Claude, ChatGPT or other MCP apps. Self-hosted.",
   "author": "Yuri Dvoinos",
   "license": "MIT",
   "homepage": "https://github.com/yuridivonis/whoop-mcp-server#readme",
@@ -17,6 +17,7 @@
     "mcp",
     "whoop",
     "claude",
+    "chatgpt",
     "health",
     "fitness"
   ],

@@ -48,7 +48,7 @@ jobs:
           github.event.workflow_run.head_repository.full_name == github.repository
         )
       )
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     outputs:
@@ -113,7 +113,7 @@ jobs:
     name: Docker image
     needs: release
     if: needs.release.outputs.released == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
       contents: read
@@ -162,7 +162,7 @@ jobs:
   registry:
     name: MCP Registry
     needs: [release, image]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       id-token: write
@@ -184,7 +184,25 @@ jobs:
             exit 1
           fi
 
+      # A version is listed once. Republishing an existing version by hand (see the top of
+      # this file) refreshes the image but leaves the listing as it is.
+      - name: Skip a version the registry already lists
+        id: listed
+        run: |
+          if ! listing=$(curl -fsS "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.yuridivonis/whoop-mcp-server"); then
+            echo "::warning::Couldn't check the MCP Registry for $VERSION; publishing anyway."
+            echo "listed=false" >> "$GITHUB_OUTPUT"
+          elif printf '%s' "$listing" | jq -e --arg version "$VERSION" \
+            '[.servers[] | (.server // .) | select(.name == "io.github.yuridivonis/whoop-mcp-server" and .version == $version)] | length > 0' \
+            >/dev/null; then
+            echo "::notice::The MCP Registry already lists $VERSION, so there's nothing to publish."
+            echo "listed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "listed=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install mcp-publisher (pinned, checksum-verified)
+        if: steps.listed.outputs.listed != 'true'
         run: |
           curl -fsSL -o mcp-publisher.tar.gz \
             "https://github.com/modelcontextprotocol/registry/releases/download/$PUBLISHER_VERSION/mcp-publisher_linux_amd64.tar.gz"
@@ -194,7 +212,9 @@ jobs:
       # GitHub's OIDC token proves the workflow runs in this repository, which owns the
       # io.github.yuridivonis namespace. No stored secret is needed.
       - name: Sign in to the MCP Registry
+        if: steps.listed.outputs.listed != 'true'
         run: ./mcp-publisher login github-oidc
 
       - name: Publish server.json
+        if: steps.listed.outputs.listed != 'true'
         run: ./mcp-publisher publish

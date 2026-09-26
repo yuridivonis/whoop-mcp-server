@@ -4,7 +4,8 @@
 
 | Version | Supported |
 |---------|-----------|
-| 1.3.x   | Yes |
+| 1.4.x   | Yes |
+| 1.3.x   | No. Upgrading needs no changes: redeploy, or let Railway's auto updates do it. |
 | 1.1.x to 1.2.x | No. They keep a copy of your Whoop data. Upgrade as described in [Upgrading to 1.3.0](README.md#upgrading-to-130). |
 | 1.0.x   | No. `/mcp` has no authentication. Upgrade as described in [Upgrading from 1.0.0](README.md#upgrading-from-100), then to 1.3.0. |
 
@@ -17,6 +18,30 @@ Include what you found, how to reproduce it, and what an attacker could do with 
 **In scope:** the code in this repository, including the sign-in for `/mcp`, the Whoop authorization callback, token storage, and the MCP tools.
 
 **Out of scope:** the Whoop API and MCP clients such as Claude, and problems that need a misconfigured deployment (for example a guessable `MCP_AUTH_PASSWORD`).
+
+## Threat model
+
+**What's worth protecting:**
+- **Your WHOOP data**, while the server fetches it and hands it to an app.
+- **Your WHOOP tokens**, which can read that data until you revoke them.
+- **The server password**, which decides which apps get in.
+
+**What the server defends against:**
+
+| Threat | Defense |
+|---|---|
+| Someone finds your server's address | `/mcp` answers only signed-in apps, password guesses are rate-limited, and the public `/health` endpoint reveals nothing. |
+| A phishing link to your sign-in page | Codes only go to allowed destinations. The page names where you'll return, warns about links from others, and needs your consent. Every successful sign-in is logged. |
+| A rogue app registers itself | Only apps returning to allowed addresses can register, and an app's chosen name is shown as plain text, never trusted. |
+| A stolen code or token is replayed | Codes and refresh tokens work once. A replay revokes the whole sign-in, and tokens expire. |
+| Someone copies the database file | It holds no health data. WHOOP tokens are encrypted, and sign-in codes and tokens are stored only as hashes. |
+| Someone listens on the network | Public addresses must use https. |
+| Tampered code or images | Every GitHub Action is pinned to a commit, and release images carry signed build provenance (`gh attestation verify`). CI audits dependencies and their licences, and [OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/yuridivonis/whoop-mcp-server) rates the repository's practices every week. |
+
+**What it can't defend against:**
+- **Anyone with the server password,** or control of the machine or hosting account it runs on.
+- **The AI app and its provider:** what they do with the answers they receive.
+- **WHOOP itself,** and your own devices.
 
 ## How the server protects your data
 
@@ -32,6 +57,7 @@ Include what you found, how to reproduce it, and what an attacker could do with 
 - **Least data:** the server asks Whoop only for recovery, cycles, sleep, and workouts.
 - **Stored Whoop tokens:** encrypted with AES-256-GCM, using a key derived from `ENCRYPTION_SECRET` (or `WHOOP_CLIENT_SECRET` if that isn't set).
 - **Public endpoints:** `/health` only reports that the server is up, and says nothing about your data or your Whoop connection.
+- **Supply chain:** actions are pinned to commits, release images are attested, and CI checks dependencies for known vulnerabilities and non-permissive licences. The README's OpenSSF Scorecard badge shows the current rating.
 
 ## If you run a deployment
 

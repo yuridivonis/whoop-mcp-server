@@ -7,7 +7,7 @@ import type { UpdateChecker } from './updates.js';
 import { localDate, localTime, wakeDay } from './days.js';
 import type { WhoopSleep } from './types.js';
 
-export const SERVER_VERSION = '1.3.1';
+export const SERVER_VERSION = '1.4.0';
 
 export interface ToolDeps {
 	client: WhoopClient;

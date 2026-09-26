@@ -84,7 +84,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 		if (authPassword.length < MIN_PASSWORD_LENGTH) {
 			throw new ConfigError(
 				`MCP_AUTH_PASSWORD must be set to at least ${MIN_PASSWORD_LENGTH} characters. ` +
-					'Claude asks for it once when you add the connector. Generate one with: openssl rand -base64 24',
+					'Each AI app asks for it once when you connect it. Generate one with: openssl rand -base64 24',
 			);
 		}
 		if (publicUrl.protocol !== 'https:' && !LOOPBACK_HOSTS.has(publicUrl.hostname)) {

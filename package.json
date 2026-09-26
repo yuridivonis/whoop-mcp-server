@@ -1,6 +1,6 @@
 {
   "name": "whoop-mcp-server",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "private": true,
   "description": "MCP server for Whoop health data integration",
   "author": "Yuri Dvoinos",

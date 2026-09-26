@@ -7,7 +7,7 @@ import type { WhoopSync } from './sync.js';
 import type { PendingAuthStates } from './auth-states.js';
 import { localDate, localTime } from './days.js';
 
-export const SERVER_VERSION = '1.1.1';
+export const SERVER_VERSION = '1.1.2';
 
 export interface ToolDeps {
 	db: WhoopDatabase;
@@ -53,6 +53,30 @@ function sportName(name: string | null, sportId: number): string {
 // Only the data the tools use. `offline` keeps the connection alive with refresh tokens.
 const WHOOP_SCOPES = ['read:cycles', 'read:recovery', 'read:sleep', 'read:workout', 'offline'];
 
+/** Sent to clients when they connect: how the tools fit together. */
+const SERVER_INSTRUCTIONS =
+	"Answers questions about the user's WHOOP data: recovery, sleep, strain and workouts. Start with get_today for how the " +
+	'user is doing today. For patterns over several days, use get_recovery_trends, get_sleep_analysis, get_strain_history ' +
+	'or get_workouts. Data refreshes from WHOOP automatically when it is over an hour old, so sync_data is rarely needed. ' +
+	"If a tool says WHOOP isn't connected, call get_auth_url and pass its answer to the user. Days are the user's local days, " +
+	"and a night of sleep counts toward the day they woke up. Nothing here changes the user's WHOOP data.";
+
+/** Appended to each data tool's description, so an agent knows what calling it involves. */
+const DATA_TOOL_BEHAVIOR =
+	" Read-only: it never changes the user's WHOOP data. Before answering, it refreshes the local copy from WHOOP if the last " +
+	'sync is over an hour old; if WHOOP is unreachable, it answers from the last sync and says so. If WHOOP isn\'t connected ' +
+	'yet, it returns a message asking to call get_auth_url.';
+
+const DATA_TOOL_ANNOTATIONS = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true };
+
+const DAYS_PARAMETER = {
+	type: 'integer',
+	minimum: 1,
+	maximum: 90,
+	default: 14,
+	description: 'How many days to cover, counting back from today: 1 to 90, default 14.',
+};
+
 function getRecoveryZone(score: number): string {
 	if (score >= 67) return 'Green (Well Recovered)';
 	if (score >= 34) return 'Yellow (Moderate)';
@@ -95,65 +119,111 @@ function syncFailureNote(error: unknown): string {
 export function createMcpServer({ db, client, sync, authStates, redirectUri, mode }: ToolDeps): Server {
 	const server = new Server(
 		{ name: 'whoop-mcp-server', version: SERVER_VERSION },
-		{ capabilities: { tools: {} } }
+		{ capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS }
 	);
 
 	server.setRequestHandler(ListToolsRequestSchema, async () => ({
 		tools: [
 			{
 				name: 'get_today',
-				description: "Get today's Whoop data including recovery score, last night's sleep, and current strain.",
+				title: "Today's WHOOP summary",
+				description:
+					"Returns the user's latest WHOOP status as Markdown: the most recent recovery (score %, Green/Yellow/Red zone, HRV in " +
+					"ms, resting heart rate, SpO2, skin temperature), last night's sleep (time asleep, performance, efficiency, " +
+					"light/deep/REM stages, respiratory rate) and today's strain so far (0–21) with calories and heart rate. Use it first for questions like " +
+					'"how am I today?" or "should I train hard?". For more than one day, use get_recovery_trends, get_sleep_analysis, ' +
+					'get_strain_history or get_workouts.' +
+					DATA_TOOL_BEHAVIOR,
 				inputSchema: { type: 'object', properties: {}, required: [] },
+				annotations: DATA_TOOL_ANNOTATIONS,
 			},
 			{
 				name: 'get_recovery_trends',
-				description: 'Get recovery score trends over time, including HRV and resting heart rate patterns.',
-				inputSchema: {
-					type: 'object',
-					properties: { days: { type: 'number', description: 'Number of days to analyze (default: 14, max: 90)' } },
-					required: [],
-				},
+				title: 'Recovery trends',
+				description:
+					'Returns daily recovery for the last `days` days (default 14), newest first, as a Markdown table: recovery score (%), ' +
+					"HRV (ms) and resting heart rate (bpm) for each of the user's local days, then averages. Days WHOOP hasn't scored " +
+					'are left out. Use it for patterns and comparisons, such as ' +
+					'"how has my HRV changed this month?". For today alone, use get_today; for the sleep behind the numbers, use ' +
+					'get_sleep_analysis.' +
+					DATA_TOOL_BEHAVIOR,
+				inputSchema: { type: 'object', properties: { days: DAYS_PARAMETER }, required: [] },
+				annotations: DATA_TOOL_ANNOTATIONS,
 			},
 			{
 				name: 'get_sleep_analysis',
-				description: 'Get sleep trends: time asleep, performance, and efficiency for each night, with averages.',
-				inputSchema: {
-					type: 'object',
-					properties: { days: { type: 'number', description: 'Number of days to analyze (default: 14, max: 90)' } },
-					required: [],
-				},
+				title: 'Sleep analysis',
+				description:
+					'Returns nightly sleep for the last `days` days (default 14), newest first, as a Markdown table: time asleep in ' +
+					'hours (light, deep and REM sleep, not time in bed), sleep performance (%) and efficiency (%), then averages. Naps ' +
+					"and nights WHOOP hasn't scored are left out, and each night counts toward the day the user woke up. Use it for " +
+					"sleep patterns. For last night's stages, use get_today; for the recovery those nights produced, use " +
+					'get_recovery_trends.' +
+					DATA_TOOL_BEHAVIOR,
+				inputSchema: { type: 'object', properties: { days: DAYS_PARAMETER }, required: [] },
+				annotations: DATA_TOOL_ANNOTATIONS,
 			},
 			{
 				name: 'get_strain_history',
-				description: 'Get daily strain and calorie history.',
-				inputSchema: {
-					type: 'object',
-					properties: { days: { type: 'number', description: 'Number of days to analyze (default: 14, max: 90)' } },
-					required: [],
-				},
+				title: 'Strain history',
+				description:
+					'Returns daily strain for the last `days` days (default 14), including today so far, newest first, as a Markdown ' +
+					'table: WHOOP day strain (0–21, covering all activity that day) and calories burned (kcal), then averages. Days ' +
+					'without a strain score are left out. Use it for overall load and activity trends. For individual ' +
+					'training sessions, use get_workouts; for how the body coped, use get_recovery_trends.' +
+					DATA_TOOL_BEHAVIOR,
+				inputSchema: { type: 'object', properties: { days: DAYS_PARAMETER }, required: [] },
+				annotations: DATA_TOOL_ANNOTATIONS,
 			},
 			{
 				name: 'get_workouts',
-				description: 'Get recent workouts with activity, duration, strain, heart rate, and calories.',
-				inputSchema: {
-					type: 'object',
-					properties: { days: { type: 'number', description: 'Number of days to include (default: 14, max: 90)' } },
-					required: [],
-				},
+				title: 'Recent workouts',
+				description:
+					'Returns individual workouts from the last `days` days (default 14), newest first, as a Markdown table: local date ' +
+					'and start time, activity, duration, strain (or "unscored" when WHOOP hasn\'t scored it), average and max heart rate, time in heart-rate ' +
+					'zones 4–5 and calories, then totals. Use it for questions about specific sessions or training volume; for ' +
+					'whole-day strain including activity outside workouts, use get_strain_history.' +
+					DATA_TOOL_BEHAVIOR,
+				inputSchema: { type: 'object', properties: { days: DAYS_PARAMETER }, required: [] },
+				annotations: DATA_TOOL_ANNOTATIONS,
 			},
 			{
 				name: 'sync_data',
-				description: 'Manually trigger a data sync from Whoop.',
+				title: 'Sync WHOOP data',
+				description:
+					"Pulls the latest data from WHOOP into the server's local copy and reports how many cycles, recoveries, sleeps " +
+					'and workouts it saved. Rarely needed: the other tools already refresh data that is over an hour old. Call it with ' +
+					'full: true to refresh right away (for example, for a workout that just ended), or to re-download the last 90 days ' +
+					'if the automatic sync after connecting failed; without full, it only syncs if the last sync was over an hour ago. ' +
+					"It never changes the user's WHOOP data or deletes anything, so running it again is harmless. If WHOOP isn't " +
+					'connected, it asks for get_auth_url.',
 				inputSchema: {
 					type: 'object',
-					properties: { full: { type: 'boolean', description: 'Force a full 90-day sync (default: false)' } },
+					properties: {
+						full: {
+							type: 'boolean',
+							default: false,
+							description: 'true re-downloads the last 90 days now. false (the default) syncs only if the last sync was over an hour ago.',
+						},
+					},
 					required: [],
 				},
+				// Writes to the server's own cache, never to WHOOP.
+				annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
 			},
 			{
 				name: 'get_auth_url',
-				description: 'Get the Whoop authorization URL to connect your account.',
+				title: 'Connect WHOOP account',
+				description:
+					"Returns a one-time link that connects the user's WHOOP account to this server through WHOOP's own login. Use it " +
+					"when a data tool such as get_today says WHOOP isn't connected or its authorization expired. Give the link to the " +
+					'user to open in a browser: it works once and expires in 10 minutes. Once they have ' +
+					'logged in, the last 90 days sync automatically and get_today works. ' +
+					"It doesn't read any WHOOP data. A server running in stdio mode can't receive WHOOP's login, so there it returns " +
+					'setup instructions instead.',
 				inputSchema: { type: 'object', properties: {}, required: [] },
+				// Nothing changes until the user opens the link.
+				annotations: { readOnlyHint: true, openWorldHint: false },
 			},
 		],
 	}));

@@ -2,12 +2,12 @@
 // formatting in the server's timezone. Set before anything formats a date.
 process.env.TZ = 'America/Los_Angeles';
 
-import { after, before, describe, it } from 'node:test';
+import { after, before, describe, it, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { PendingAuthStates } from '../src/auth-states.js';
-import { createMcpServer } from '../src/tools.js';
+import { createMcpServer, type ToolDeps } from '../src/tools.js';
 import type { WhoopSync } from '../src/sync.js';
 import type { WhoopClient } from '../src/whoop-client.js';
 import type { WhoopCycle, WhoopRecovery, WhoopSleep, WhoopWorkout } from '../src/types.js';
@@ -170,6 +170,81 @@ describe('data tools', () => {
 		const reply = await callTool(server, accessToken, 'get_auth_url');
 		const link = new URL(reply.match(/Visit: (\S+)/)?.[1] ?? '');
 		assert.deepEqual(link.searchParams.get('scope')?.split(' '), ['read:cycles', 'read:recovery', 'read:sleep', 'read:workout', 'offline']);
+	});
+});
+
+describe('tool definitions', () => {
+	async function connect(t: TestContext, deps: Partial<ToolDeps> = {}): Promise<Client> {
+		const server = createMcpServer({
+			db: memoryDb(t),
+			client: {} as WhoopClient,
+			sync: {} as WhoopSync,
+			authStates: new PendingAuthStates(),
+			redirectUri: 'http://localhost:3000/callback',
+			mode: 'http',
+			...deps,
+		});
+		const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+		await server.connect(serverSide);
+		const client = new Client({ name: 'test', version: '0' });
+		await client.connect(clientSide);
+		t.after(() => client.close());
+		return client;
+	}
+
+	it('give each tool a title, guidance on when to use it, and honest annotations', async t => {
+		const { tools } = await (await connect(t)).listTools();
+		const names = tools.map(tool => tool.name);
+		assert.equal(tools.length, 7);
+
+		for (const tool of tools) {
+			assert.ok(tool.title, `${tool.name} has a title`);
+			assert.ok((tool.description ?? '').length > 250, `${tool.name} explains what it returns and when to use it`);
+			assert.ok(
+				names.some(other => other !== tool.name && tool.description?.includes(other)),
+				`${tool.name} points to a sibling tool`,
+			);
+			assert.equal(typeof tool.annotations?.readOnlyHint, 'boolean', `${tool.name} says whether it changes anything`);
+			const days = tool.inputSchema.properties?.days as Record<string, unknown> | undefined;
+			if (days) {
+				assert.deepEqual(
+					{ type: days.type, minimum: days.minimum, maximum: days.maximum, default: days.default },
+					{ type: 'integer', minimum: 1, maximum: 90, default: 14 },
+					`${tool.name} states the days limits`,
+				);
+			}
+		}
+
+		for (const name of ['get_today', 'get_recovery_trends', 'get_sleep_analysis', 'get_strain_history', 'get_workouts']) {
+			const description = tools.find(tool => tool.name === name)?.description ?? '';
+			assert.match(description, /over an hour old/, `${name} says when it refreshes from WHOOP`);
+			assert.match(description, /get_auth_url/, `${name} says what to do when WHOOP isn't connected`);
+		}
+
+		const readOnly = tools.filter(tool => tool.annotations?.readOnlyHint).map(tool => tool.name).sort();
+		assert.deepEqual(readOnly, ['get_auth_url', 'get_recovery_trends', 'get_sleep_analysis', 'get_strain_history', 'get_today', 'get_workouts']);
+		const sync = tools.find(tool => tool.name === 'sync_data');
+		assert.equal(sync?.annotations?.destructiveHint, false, 'sync_data writes only its own cache');
+	});
+
+	it('still clamps days on the server, whatever a client sends', async t => {
+		const db = memoryDb(t);
+		db.saveTokens({ access_token: 'whoop-access', refresh_token: 'whoop-refresh', expires_at: Date.now() + HOUR });
+		const client = await connect(t, { db, sync: { smartSync: async () => ({ type: 'skip' }) } as unknown as WhoopSync });
+		const reply = async (days: unknown) => {
+			const result = await client.callTool({ name: 'get_workouts', arguments: { days } });
+			return (result.content as { text: string }[])[0].text;
+		};
+
+		assert.match(await reply(0), /last 14 days/);
+		assert.match(await reply(91), /last 90 days/);
+		assert.match(await reply('7'), /last 7 days/);
+	});
+
+	it('tells clients how the tools fit together when they connect', async t => {
+		const instructions = (await connect(t)).getInstructions() ?? '';
+		assert.match(instructions, /get_today/);
+		assert.match(instructions, /get_auth_url/);
 	});
 });
 

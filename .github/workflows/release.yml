@@ -3,8 +3,9 @@ name: Release
 # Merging is releasing. When CI passes on main and package.json has a version that isn't
 # tagged yet, this:
 #   1. tags that commit and publishes the GitHub release, with notes from CHANGELOG.md;
-#   2. builds the Docker image for amd64 and arm64, pushes it to ghcr.io, and attests
-#      where it was built (signed build provenance);
+#   2. builds the Docker image for amd64 and arm64, pushes it to ghcr.io as :<version>,
+#      :<major> (e.g. :1, so a redeploy picks up updates without breaking changes) and
+#      :latest, and attests where it was built (signed build provenance);
 #   3. publishes server.json to the official MCP Registry.
 # Merges that don't change the version release nothing.
 #
@@ -52,6 +53,8 @@ jobs:
       contents: write
     outputs:
       version: ${{ steps.release.outputs.version }}
+      major: ${{ steps.release.outputs.major }}
+      newest: ${{ steps.release.outputs.newest }}
       sha: ${{ steps.release.outputs.sha }}
       released: ${{ steps.release.outputs.released }}
     steps:
@@ -81,12 +84,15 @@ jobs:
               exit 1
             fi
             echo "Publishing the image and listing for the existing v$REQUESTED ($sha)."
-            { echo "version=$REQUESTED"; echo "sha=$sha"; echo "released=true"; } >> "$GITHUB_OUTPUT"
+            # Republishing an older version must not move :latest or the major tag back to it.
+            newest=false
+            [ "$(git tag --list 'v*' --sort=-v:refname | head -1)" = "v$REQUESTED" ] && newest=true
+            { echo "version=$REQUESTED"; echo "major=${REQUESTED%%.*}"; echo "newest=$newest"; echo "sha=$sha"; echo "released=true"; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           version=$(node -p "require('./package.json').version")
-          { echo "version=$version"; echo "sha=$SHA"; } >> "$GITHUB_OUTPUT"
+          { echo "version=$version"; echo "major=${version%%.*}"; echo "sha=$SHA"; } >> "$GITHUB_OUTPUT"
           if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
             echo "v$version is already released; nothing to do."
             echo "released=false" >> "$GITHUB_OUTPUT"
@@ -99,7 +105,9 @@ jobs:
           git tag -a "v$version" "$SHA" -m "whoop-mcp-server $version"
           git push origin "v$version"
           gh release create "v$version" --verify-tag --latest --title "v$version" --notes-file notes.md
-          echo "released=true" >> "$GITHUB_OUTPUT"
+          newest=false
+          [ "$(git tag --list 'v*' --sort=-v:refname | head -1)" = "v$version" ] && newest=true
+          { echo "newest=$newest"; echo "released=true"; } >> "$GITHUB_OUTPUT"
 
   image:
     name: Docker image
@@ -136,9 +144,11 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           provenance: false
+          # :latest and the major tag only ever move forward. Empty lines are ignored.
           tags: |
             ${{ env.IMAGE }}:${{ needs.release.outputs.version }}
-            ${{ env.IMAGE }}:latest
+            ${{ needs.release.outputs.newest == 'true' && format('{0}:{1}', env.IMAGE, needs.release.outputs.major) || '' }}
+            ${{ needs.release.outputs.newest == 'true' && format('{0}:latest', env.IMAGE) || '' }}
           labels: org.opencontainers.image.version=${{ needs.release.outputs.version }}
           annotations: index:io.modelcontextprotocol.server.name=io.github.yuridivonis/whoop-mcp-server
 

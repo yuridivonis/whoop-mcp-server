@@ -3,6 +3,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema, ErrorCode, McpError } fr
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { WhoopAuthError, type Query, type WhoopClient } from './whoop-client.js';
 import type { PendingAuthStates } from './auth-states.js';
+import type { UpdateChecker } from './updates.js';
 import { localDate, localTime, wakeDay } from './days.js';
 import type { WhoopSleep } from './types.js';
 
@@ -14,6 +15,8 @@ export interface ToolDeps {
 	redirectUri: string;
 	/** In stdio mode there is no /callback, so get_auth_url explains how to connect instead. */
 	mode: 'http' | 'stdio';
+	/** Adds a line to get_today when a newer release is out. Absent when UPDATE_CHECK=false. */
+	updates?: UpdateChecker;
 }
 
 interface ToolArguments {
@@ -134,7 +137,7 @@ function timeAsleep(sleep: WhoopSleep): number | null {
 	return light == null || deep == null || rem == null ? null : light + deep + rem;
 }
 
-export function createMcpServer({ client, authStates, redirectUri, mode }: ToolDeps): Server {
+export function createMcpServer({ client, authStates, redirectUri, mode, updates }: ToolDeps): Server {
 	const server = new Server(
 		{ name: 'whoop-mcp-server', version: SERVER_VERSION },
 		{ capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS }
@@ -150,7 +153,8 @@ export function createMcpServer({ client, authStates, redirectUri, mode }: ToolD
 					"ms, resting heart rate, SpO2, skin temperature), last night's sleep (time asleep, performance, efficiency, " +
 					"light/deep/REM stages, respiratory rate) and today's strain so far (0–21) with calories and heart rate. Use it first for questions like " +
 					'"how am I today?" or "should I train hard?". For more than one day, use get_recovery_trends, get_sleep_analysis, ' +
-					'get_strain_history or get_workouts.' +
+					'get_strain_history or get_workouts. When a newer version of this server is out, the answer ends with a one-line ' +
+					'notice to pass on to the user.' +
 					DATA_TOOL_BEHAVIOR,
 				inputSchema: { type: 'object', properties: {}, required: [] },
 				annotations: DATA_TOOL_ANNOTATIONS,
@@ -279,6 +283,9 @@ export function createMcpServer({ client, authStates, redirectUri, mode }: ToolD
 						if (score?.average_heart_rate) response += `- **Avg HR**: ${score.average_heart_rate} bpm\n`;
 						if (score?.max_heart_rate) response += `- **Max HR**: ${score.max_heart_rate} bpm\n`;
 					}
+
+					const notice = updates?.notice();
+					if (notice) response += `\n---\n${notice}\n`;
 
 					return text(response);
 				}

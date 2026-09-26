@@ -13,6 +13,8 @@ export interface Config {
 	trustProxy: number | string | false;
 	/** Web clients whose sign-in redirect addresses are allowed; see auth/redirects.ts. */
 	allowedRedirectHosts: string[];
+	/** Whether to ask GitHub once a day for a newer release; see updates.ts. */
+	updateCheck: boolean;
 }
 
 export class ConfigError extends Error {
@@ -101,5 +103,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 		authPassword,
 		trustProxy: parseTrustProxy(env),
 		allowedRedirectHosts: parseRedirectHosts(env),
+		updateCheck: !['false', '0', 'off', 'no'].includes((env.UPDATE_CHECK ?? '').trim().toLowerCase()),
 	};
 }

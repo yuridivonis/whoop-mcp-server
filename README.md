@@ -150,14 +150,15 @@ docker run -d --name whoop-mcp -p 3000:3000 -v whoop-data:/data \
   -e WHOOP_CLIENT_SECRET=your_client_secret \
   -e WHOOP_REDIRECT_URI=https://your-server.example.com/callback \
   -e MCP_AUTH_PASSWORD=a-password-of-16-or-more-characters \
-  ghcr.io/yuridivonis/whoop-mcp-server:latest
+  ghcr.io/yuridivonis/whoop-mcp-server:1
 ```
 
 - **On a server with a public https address:** set `WHOOP_REDIRECT_URI` to that address's `/callback`, and connect Claude to its `/mcp`, as with Railway.
 - **On your own computer:** Whoop's login still needs an https address, so point a tunnel at port 3000 (see below) and use the tunnel's `/callback`. Add `-e PUBLIC_URL=http://localhost:3000`, so MCP clients on the same computer connect to `http://localhost:3000/mcp`.
 - **The sign-ins and Whoop tokens** live in the `whoop-data` volume, so restarts and upgrades keep you connected.
+- **Tags:** `:1` always points to the newest 1.x release, so pulling it again (or redeploying) picks up fixes and new features without breaking changes. `:1.3.0` and the like pin one exact version; `:latest` follows every release, including a future 2.0.
 
-To check that an image was built by this repository's release workflow, run `gh attestation verify oci://ghcr.io/yuridivonis/whoop-mcp-server:latest --owner yuridivonis`.
+To check that an image was built by this repository's release workflow, run `gh attestation verify oci://ghcr.io/yuridivonis/whoop-mcp-server:1 --owner yuridivonis`.
 
 The server is also listed in the official [MCP Registry](https://registry.modelcontextprotocol.io) as `io.github.yuridivonis/whoop-mcp-server`.
 
@@ -212,6 +213,7 @@ Quick tunnels get a new address every time they start, so you'd repeat steps 1 t
 | `DB_PATH` | SQLite database path (sign-ins and encrypted Whoop tokens) | `./whoop.db` |
 | `PORT` | HTTP server port | `3000` |
 | `MCP_MODE` | `http` for a server, or `stdio` for an MCP client that starts it as a local command (see [Running on Your Own Computer](#running-on-your-own-computer)) | `http` |
+| `UPDATE_CHECK` | Once a day, ask GitHub for the latest release number, and end `get_today`'s answer with a one-line notice when a newer version is out. The request carries nothing about you or your data. `false` turns it off. | `true` |
 
 ## Architecture
 

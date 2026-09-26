@@ -44,7 +44,7 @@ function acceptEventStream(req: Request, _res: Response, next: NextFunction): vo
 	next();
 }
 
-export function createApp({ config, db, client, authStates, log = logToStdout }: AppDeps): express.Express {
+export function createApp({ config, db, client, authStates, updates, log = logToStdout }: AppDeps): express.Express {
 	const app = express();
 	// The rate limits below need the client's address; see TRUST_PROXY in config.ts.
 	app.set('trust proxy', config.trustProxy);
@@ -129,7 +129,7 @@ export function createApp({ config, db, client, authStates, log = logToStdout }:
 	// Stateless Streamable HTTP: every request gets its own server and transport, so there
 	// are no sessions to leak, expire or lose on redeploy, and nothing is shared between clients.
 	app.post('/mcp', requireAuth, acceptEventStream, async (req: Request, res: Response) => {
-		const server = createMcpServer({ client, authStates, redirectUri: config.redirectUri, mode: 'http' });
+		const server = createMcpServer({ client, authStates, updates, redirectUri: config.redirectUri, mode: 'http' });
 		const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 		res.on('close', () => {
 			transport.close().catch(() => {});

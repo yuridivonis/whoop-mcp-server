@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Update notice:** once a day, the server asks GitHub for the latest release number. When a newer version is out, `get_today`'s answer ends with a one-line notice, and the server log says so once. The request carries nothing about you or your data, and `UPDATE_CHECK=false` turns it off. (#18)
+- **A stable image tag:** every release is also published as `ghcr.io/yuridivonis/whoop-mcp-server:1`, which follows the newest 1.x release, so redeploying picks up updates without breaking changes. Republishing an older release no longer moves `:latest` back. (#18)
+- **Sign-in compatibility tests:** each way apps sign in is tested end to end, from registration to refresh. That covers Claude on claude.ai and claude.com, ChatGPT with either of its callback addresses and its bare-address resource, local apps, and desktop app links. The tests also check the MCP authorization spec's requirements: discovery metadata, PKCE with S256, and tokens only in the Authorization header. (#18)
+
 ## [1.3.1] - 2026-09-26
 
 ### Changed

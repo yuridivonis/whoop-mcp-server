@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [1.3.0] - 2026-09-26
 
-The server no longer keeps a copy of your WHOOP data, and asks before any app receives it. Upgrading takes a few minutes: see [Upgrading to 1.3.0](README.md#upgrading-to-130).
+The server no longer keeps a copy of your WHOOP data, and asks before any app receives it. Upgrading takes a few minutes: see [Upgrading to 1.3.0](https://github.com/yuridivonis/whoop-mcp-server#upgrading-to-130).
 
 ### Added
 

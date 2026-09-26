@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.3.1] - 2026-09-26
+
+### Changed
+
+- **Sign-in page:** a clearer design. The heading names where your WHOOP data goes, what the app can read shows at a glance, the password field says it's the server password and not your WHOOP password, and the consent box stands out. It works in light and dark mode and on phones, and it deliberately doesn't look like WHOOP's own login. (#17)
+
 ## [1.3.0] - 2026-09-26
 
 The server no longer keeps a copy of your WHOOP data, and asks before any app receives it. Upgrading takes a few minutes: see [Upgrading to 1.3.0](https://github.com/yuridivonis/whoop-mcp-server#upgrading-to-130).
@@ -118,6 +124,7 @@ Upgrading takes a few minutes: see [Upgrading from 1.0.0](README.md#upgrading-fr
 
 Initial release: a remote MCP server with Whoop recovery, sleep, and strain tools, a local SQLite cache, and Railway deployment.
 
+[1.3.1]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.3.1
 [1.3.0]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.3.0
 [1.2.0]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.2.0
 [1.1.3]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.1.3

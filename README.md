@@ -108,6 +108,27 @@ See [SECURITY.md](SECURITY.md) for the full security model and how to report a v
 
 When you deploy this server, you register your own Whoop developer app, so you are the developer under WHOOP's [API Terms of Use](https://developer.whoop.com/api-terms-of-use/) and responsible for following them. Among other things, unless the owner of the WHOOP data or applicable law allows it, the terms prohibit using WHOOP data to create, train, test, or improve AI or machine-learning models or systems (§4.2(c)). They also require you to report a security incident to WHOOP within 48 hours (§2.4). Read them before you deploy.
 
+## Docker
+
+Each release is published as an image for amd64 and arm64 on GitHub's container registry. It runs the same server as the Railway setup above:
+
+```bash
+docker run -d --name whoop-mcp -p 3000:3000 -v whoop-data:/data \
+  -e WHOOP_CLIENT_ID=your_client_id \
+  -e WHOOP_CLIENT_SECRET=your_client_secret \
+  -e WHOOP_REDIRECT_URI=https://your-server.example.com/callback \
+  -e MCP_AUTH_PASSWORD=a-password-of-16-or-more-characters \
+  ghcr.io/yuridivonis/whoop-mcp-server:latest
+```
+
+- **On a server with a public https address:** set `WHOOP_REDIRECT_URI` to that address's `/callback`, and connect Claude to its `/mcp`, as with Railway.
+- **On your own computer:** Whoop's login still needs an https address, so point a tunnel at port 3000 (see below) and use the tunnel's `/callback`. Add `-e PUBLIC_URL=http://localhost:3000`, so MCP clients on the same computer connect to `http://localhost:3000/mcp`.
+- **Your data** lives in the `whoop-data` volume, so it survives restarts and upgrades.
+
+To check that an image was built by this repository's release workflow, run `gh attestation verify oci://ghcr.io/yuridivonis/whoop-mcp-server:latest --owner yuridivonis`.
+
+The server is also listed in the official [MCP Registry](https://registry.modelcontextprotocol.io) as `io.github.yuridivonis/whoop-mcp-server`.
+
 ## Running on Your Own Computer
 
 Requires Node.js 22 or later.

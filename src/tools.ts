@@ -7,7 +7,7 @@ import type { WhoopSync } from './sync.js';
 import type { PendingAuthStates } from './auth-states.js';
 import { localDate, localTime } from './days.js';
 
-export const SERVER_VERSION = '1.1.3';
+export const SERVER_VERSION = '1.2.0';
 
 export interface ToolDeps {
 	db: WhoopDatabase;

@@ -1,0 +1,76 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.yuridivonis/whoop-mcp-server",
+  "title": "Whoop MCP Server",
+  "description": "Ask Claude about your WHOOP recovery, sleep, strain and workouts. Self-hosted, with sign-in.",
+  "version": "1.2.0",
+  "websiteUrl": "https://github.com/yuridivonis/whoop-mcp-server#readme",
+  "repository": {
+    "url": "https://github.com/yuridivonis/whoop-mcp-server",
+    "source": "github",
+    "id": "1116331114"
+  },
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/yuridivonis/whoop-mcp-server:1.2.0",
+      "transport": {
+        "type": "streamable-http",
+        "url": "http://localhost:3000/mcp"
+      },
+      "runtimeHint": "docker",
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "-p",
+          "value": "3000:3000",
+          "description": "Publish the server's port on this computer.",
+          "isRequired": true
+        },
+        {
+          "type": "named",
+          "name": "-v",
+          "value": "whoop-data:/data",
+          "description": "Keep synced data and the encrypted WHOOP tokens in a named volume, so they survive restarts.",
+          "isRequired": true
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "WHOOP_CLIENT_ID",
+          "description": "Client ID of your WHOOP developer app.",
+          "isRequired": true
+        },
+        {
+          "name": "WHOOP_CLIENT_SECRET",
+          "description": "Client secret of your WHOOP developer app.",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "WHOOP_REDIRECT_URI",
+          "description": "The server's /callback address, also added to your WHOOP app. WHOOP needs an https address, such as a tunnel to this computer.",
+          "isRequired": true,
+          "placeholder": "https://your-tunnel.example.com/callback"
+        },
+        {
+          "name": "MCP_AUTH_PASSWORD",
+          "description": "Password for the sign-in page that protects /mcp, at least 16 characters.",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "PUBLIC_URL",
+          "description": "The address MCP clients use to reach the server. Keep the default when running it on this computer.",
+          "default": "http://localhost:3000",
+          "isRequired": true
+        },
+        {
+          "name": "ENCRYPTION_SECRET",
+          "description": "Key for encrypting the stored WHOOP tokens. Defaults to WHOOP_CLIENT_SECRET.",
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

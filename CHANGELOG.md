@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-09-26
+
+### Added
+
+- **Docker image:** every release is published to `ghcr.io/yuridivonis/whoop-mcp-server` for amd64 and arm64, with signed build provenance you can check with `gh attestation verify`. See [Docker](README.md#docker). (#14)
+- **MCP Registry:** the server is listed in the official MCP Registry as `io.github.yuridivonis/whoop-mcp-server`, and each release updates the listing automatically. (#14)
+
+### Changed
+
+- **Releases:** merging a version bump now tags and publishes the GitHub release, the Docker image and the registry listing, with no manual steps. (#12, #14)
+- **Licences:** CI fails if a production dependency isn't permissively licensed. (#14)
+
 ## [1.1.3] - 2026-09-26
 
 ### Changed
@@ -80,6 +92,7 @@ Upgrading takes a few minutes: see [Upgrading from 1.0.0](README.md#upgrading-fr
 
 Initial release: a remote MCP server with Whoop recovery, sleep, and strain tools, a local SQLite cache, and Railway deployment.
 
+[1.2.0]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.2.0
 [1.1.3]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.1.3
 [1.1.2]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.1.2
 [1.1.1]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.1.1

@@ -1,46 +1,95 @@
 name: Release
 
 # Merging is releasing. When CI passes on main and package.json has a version that isn't
-# tagged yet, this tags that commit and publishes the GitHub release, with notes from its
-# CHANGELOG.md section. Merges that don't change the version release nothing.
+# tagged yet, this:
+#   1. tags that commit and publishes the GitHub release, with notes from CHANGELOG.md;
+#   2. builds the Docker image for amd64 and arm64, pushes it to ghcr.io, and attests
+#      where it was built (signed build provenance);
+#   3. publishes server.json to the official MCP Registry.
+# Merges that don't change the version release nothing.
+#
+# If step 2 or 3 fails, use "Re-run failed jobs" on the run. If the fix needed a new commit,
+# run this workflow by hand (Actions → Release → Run workflow) with the version: it
+# republishes the image and listing from that version's tag.
+#
+# The first image push creates the ghcr.io package, which GitHub may make private. The
+# registry can only verify public images, so step 3 checks first and says how to fix it.
 on:
   workflow_run:
     workflows: [CI]
     types: [completed]
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version whose image and registry listing to publish again, e.g. 1.2.0. Its tag must exist.
+        required: true
 
-permissions:
-  contents: write
+permissions: {}
 
 concurrency:
   group: release
 
+env:
+  IMAGE: ghcr.io/yuridivonis/whoop-mcp-server
+
 jobs:
   release:
-    # Only CI runs for pushes to this repository's main, never pull requests (a fork's
-    # branch can also be called main).
+    name: GitHub release
+    # This repository only, never forks. From CI: only runs for pushes to main, never pull
+    # requests (a fork's branch can also be called main). By hand: anyone who can run
+    # workflows here.
     if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
+      github.repository == 'yuridivonis/whoop-mcp-server' && (
+        github.event_name == 'workflow_dispatch' || (
+          github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_repository.full_name == github.repository
+        )
+      )
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      sha: ${{ steps.release.outputs.sha }}
+      released: ${{ steps.release.outputs.released }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
 
       - name: Tag and publish the release if the version is new
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
           SHA: ${{ github.event.workflow_run.head_sha }}
+          REQUESTED: ${{ inputs.version }}
         run: |
+          if [ "$EVENT" = workflow_dispatch ]; then
+            if ! printf '%s' "$REQUESTED" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "Not a version: $REQUESTED" >&2
+              exit 1
+            fi
+            if ! sha=$(git rev-list -n 1 "refs/tags/v$REQUESTED" 2>/dev/null); then
+              echo "There is no tag v$REQUESTED to publish from." >&2
+              exit 1
+            fi
+            echo "Publishing the image and listing for the existing v$REQUESTED ($sha)."
+            { echo "version=$REQUESTED"; echo "sha=$sha"; echo "released=true"; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           version=$(node -p "require('./package.json').version")
+          { echo "version=$version"; echo "sha=$SHA"; } >> "$GITHUB_OUTPUT"
           if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
             echo "v$version is already released; nothing to do."
+            echo "released=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           previous=$(git tag --list 'v*' --sort=-v:refname | head -1 | sed 's/^v//')
@@ -50,3 +99,92 @@ jobs:
           git tag -a "v$version" "$SHA" -m "whoop-mcp-server $version"
           git push origin "v$version"
           gh release create "v$version" --verify-tag --latest --title "v$version" --notes-file notes.md
+          echo "released=true" >> "$GITHUB_OUTPUT"
+
+  image:
+    name: Docker image
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release.outputs.sha }}
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+
+      # The registry reads the server name from the image's labels (set in the Dockerfile).
+      # The index annotation carries it too, for tools that only look at the index.
+      # Provenance comes from the signed attestation below, so buildx adds none of its own.
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          tags: |
+            ${{ env.IMAGE }}:${{ needs.release.outputs.version }}
+            ${{ env.IMAGE }}:latest
+          labels: org.opencontainers.image.version=${{ needs.release.outputs.version }}
+          annotations: index:io.modelcontextprotocol.server.name=io.github.yuridivonis/whoop-mcp-server
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+  registry:
+    name: MCP Registry
+    needs: [release, image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PUBLISHER_VERSION: v1.8.1
+      PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+      VERSION: ${{ needs.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release.outputs.sha }}
+          persist-credentials: false
+
+      # Not logged in, so this sees what the registry sees.
+      - name: The image is public
+        run: |
+          if ! docker manifest inspect "$IMAGE:$VERSION" >/dev/null; then
+            echo "::error::$IMAGE:$VERSION can't be pulled anonymously, so the MCP Registry can't verify it. Make the package public (https://github.com/users/yuridivonis/packages/container/whoop-mcp-server/settings → Change visibility → Public), then re-run this job."
+            exit 1
+          fi
+
+      - name: Install mcp-publisher (pinned, checksum-verified)
+        run: |
+          curl -fsSL -o mcp-publisher.tar.gz \
+            "https://github.com/modelcontextprotocol/registry/releases/download/$PUBLISHER_VERSION/mcp-publisher_linux_amd64.tar.gz"
+          echo "$PUBLISHER_SHA256  mcp-publisher.tar.gz" | sha256sum --check
+          tar xzf mcp-publisher.tar.gz mcp-publisher
+
+      # GitHub's OIDC token proves the workflow runs in this repository, which owns the
+      # io.github.yuridivonis namespace. No stored secret is needed.
+      - name: Sign in to the MCP Registry
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish server.json
+        run: ./mcp-publisher publish

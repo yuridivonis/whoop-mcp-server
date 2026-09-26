@@ -41,12 +41,39 @@ jobs:
           node-version: 24
       - run: npm audit --omit=dev --audit-level=high
 
+  listing:
+    name: Registry listing and licences
+    runs-on: ubuntu-latest
+    env:
+      PUBLISHER_VERSION: v1.8.1
+      PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Production dependencies are permissively licensed
+        run: |
+          npm ci --omit=dev --ignore-scripts
+          node scripts/check-licenses.mjs
+      - name: server.json passes the MCP Registry's validation
+        run: |
+          curl -fsSL -o mcp-publisher.tar.gz \
+            "https://github.com/modelcontextprotocol/registry/releases/download/$PUBLISHER_VERSION/mcp-publisher_linux_amd64.tar.gz"
+          echo "$PUBLISHER_SHA256  mcp-publisher.tar.gz" | sha256sum --check
+          tar xzf mcp-publisher.tar.gz mcp-publisher
+          ./mcp-publisher validate
+
   docker:
     name: Docker image
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: docker build --tag whoop-mcp-server .
+      - name: Carries the label the MCP Registry checks
+        run: |
+          label=$(docker inspect --format '{{ index .Config.Labels "io.modelcontextprotocol.server.name" }}' whoop-mcp-server)
+          test "$label" = "$(jq -r .name server.json)"
       - name: Refuses to start without MCP_AUTH_PASSWORD
         run: |
           if docker run --rm whoop-mcp-server; then

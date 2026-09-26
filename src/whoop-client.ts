@@ -45,8 +45,11 @@ export interface Query {
 	limit?: number;
 }
 
+/** Anything that went wrong talking to WHOOP, as opposed to the token store. */
+export class WhoopError extends Error {}
+
 /** WHOOP isn't connected, or rejected the stored tokens: the user has to authorize again. */
-export class WhoopAuthError extends Error {
+export class WhoopAuthError extends WhoopError {
 	constructor(message = 'Whoop authorization expired. Use the get_auth_url tool to reconnect.') {
 		super(message);
 		this.name = 'WhoopAuthError';
@@ -54,7 +57,7 @@ export class WhoopAuthError extends Error {
 }
 
 /** WHOOP's rate limit was reached. */
-export class WhoopRateLimitError extends Error {
+export class WhoopRateLimitError extends WhoopError {
 	constructor() {
 		super("WHOOP's rate limit was reached. Try again in a minute.");
 		this.name = 'WhoopRateLimitError';
@@ -62,20 +65,23 @@ export class WhoopRateLimitError extends Error {
 }
 
 /** WHOOP failed (5xx), didn't answer in time, or couldn't be reached. */
-export class WhoopUnavailableError extends Error {
+export class WhoopUnavailableError extends WhoopError {
 	/** WHOOP's HTTP status, when it answered at all. */
 	readonly status?: number;
 	readonly at = new Date();
+	/** False when the request certainly never reached WHOOP, such as when its address couldn't be looked up. */
+	readonly reachedWhoop: boolean;
 
-	constructor(message: string, status?: number) {
+	constructor(message: string, { status, reachedWhoop = true }: { status?: number; reachedWhoop?: boolean } = {}) {
 		super(message);
 		this.name = 'WhoopUnavailableError';
 		this.status = status;
+		this.reachedWhoop = reachedWhoop;
 	}
 }
 
-/** WHOOP refused the request itself (a 4xx other than 401 and 429). */
-export class WhoopRequestError extends Error {
+/** WHOOP turned the request away (a 4xx that isn't about the user's authorization or the rate limit). */
+export class WhoopRequestError extends WhoopError {
 	readonly status: number;
 
 	constructor(message: string, status: number) {
@@ -85,12 +91,25 @@ export class WhoopRequestError extends Error {
 	}
 }
 
+// Network errors that mean the request never left this server.
+const NOT_SENT = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'EHOSTUNREACH', 'ENETUNREACH', 'UND_ERR_CONNECT_TIMEOUT']);
+
 async function failure(response: Response, what: string): Promise<Error> {
 	if (response.status === 429) return new WhoopRateLimitError();
 	if (response.status >= 500) {
-		return new WhoopUnavailableError(`WHOOP is unavailable right now (${what} answered ${response.status}). Try again in a minute.`, response.status);
+		return new WhoopUnavailableError(`WHOOP is unavailable right now (${what} answered ${response.status}). Try again in a minute.`, { status: response.status });
 	}
 	return new WhoopRequestError(`WHOOP refused the request (${what} answered ${response.status}): ${(await response.text()).slice(0, 200)}`, response.status);
+}
+
+/** The OAuth `error` code in a token endpoint's answer, if it has one. */
+async function oauthError(response: Response): Promise<string | undefined> {
+	try {
+		const body = await response.json() as { error?: unknown };
+		return typeof body.error === 'string' ? body.error : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 function expiresSoon(tokens: WhoopTokens): boolean {
@@ -130,6 +149,8 @@ function oneAtATime<T>(store: TokenStore, task: () => Promise<T>): Promise<T> {
  *    - otherwise mark them, present the refresh token held now, then save the result
  *      (which clears the mark) and use it.
  *    A failure that leaves it unclear whether WHOOP replaced the token keeps the mark.
+ *    When WHOOP certainly didn't use the token (it turned the request away, or never
+ *    received it), the mark is cleared.
  */
 export class WhoopClient {
 	private readonly clientId: string;
@@ -205,7 +226,7 @@ export class WhoopClient {
 			shared = this.fetchAll<T>(path, query).finally(() => this.inFlight.delete(key));
 			this.inFlight.set(key, shared);
 		}
-		// Each caller gets its own array, so one can't change what another sees.
+		// Each caller gets its own array, so one can't reorder another's. The records themselves are shared.
 		return shared.then(records => [...records]);
 	}
 
@@ -234,7 +255,7 @@ export class WhoopClient {
 				this.storedRefreshToken = stored?.refresh_token ?? null;
 				this.unsaved = false;
 			} else if (this.unsaved && this.tokens) {
-				// New tokens nobody has presented yet, so saving them also clears any mark.
+				// Tokens WHOOP hasn't spent, so saving them also clears any mark.
 				await this.save(this.tokens);
 				interrupted = false;
 			}
@@ -252,8 +273,12 @@ export class WhoopClient {
 			} catch (error) {
 				// Refused: the authorization has ended.
 				if (error instanceof WhoopAuthError) throw error;
-				// Turned away unread, so the refresh token is still good: clear the mark.
-				if (error instanceof WhoopRateLimitError) {
+				// Turned away, or never sent: the refresh token is unspent, so clear the mark. If
+				// that save fails, step 2 retries it before anything else.
+				const unspent = error instanceof WhoopRateLimitError || error instanceof WhoopRequestError ||
+					(error instanceof WhoopUnavailableError && !error.reachedWhoop);
+				if (unspent) {
+					this.unsaved = true;
 					await this.save(held);
 					throw error;
 				}
@@ -275,8 +300,11 @@ export class WhoopClient {
 			if (error instanceof Error && error.name === 'TimeoutError') {
 				throw new WhoopUnavailableError(`WHOOP didn't answer within ${REQUEST_TIMEOUT_MS / 1000} seconds. Try again in a minute.`);
 			}
-			const reason = error instanceof Error ? error.message : String(error);
-			throw new WhoopUnavailableError(`Couldn't reach WHOOP (${reason}). Try again in a minute.`);
+			const cause = error instanceof Error ? error.cause as { code?: unknown; message?: unknown } | undefined : undefined;
+			const reason = typeof cause?.message === 'string' ? cause.message : error instanceof Error ? error.message : String(error);
+			throw new WhoopUnavailableError(`Couldn't reach WHOOP (${reason}). Try again in a minute.`, {
+				reachedWhoop: !NOT_SENT.has(String(cause?.code)),
+			});
 		}
 	}
 
@@ -287,9 +315,15 @@ export class WhoopClient {
 			body: new URLSearchParams({ ...grant, client_id: this.clientId, client_secret: this.clientSecret }),
 		});
 
-		// WHOOP refused the code or refresh token: only a new authorization helps.
 		if (response.status === 400 || response.status === 401) {
-			throw new WhoopAuthError();
+			const error = await oauthError(response);
+			// WHOOP refused the code or refresh token itself: only a new authorization helps.
+			if (error === 'invalid_grant' || error === undefined) throw new WhoopAuthError();
+			// Refused before the token was looked at, such as for a wrong client secret.
+			throw new WhoopRequestError(
+				`WHOOP refused this server's app credentials (${error}). Check WHOOP_CLIENT_ID and WHOOP_CLIENT_SECRET.`,
+				response.status,
+			);
 		}
 		if (!response.ok) {
 			throw await failure(response, 'the token endpoint');
@@ -320,8 +354,7 @@ export class WhoopClient {
 			} catch (error) {
 				// WHOOP failing to refresh a token that hasn't expired yet isn't the end: the
 				// token may still be accepted, and a 401 below retries the refresh.
-				const whoopFailed = error instanceof WhoopAuthError || error instanceof WhoopUnavailableError || error instanceof WhoopRateLimitError;
-				if (!whoopFailed || !this.tokens || this.tokens.expires_at <= Date.now()) throw error;
+				if (!(error instanceof WhoopError) || !this.tokens || this.tokens.expires_at <= Date.now()) throw error;
 			}
 		}
 

@@ -27,6 +27,10 @@ class FakeWhoop {
 	readonly replays: string[] = [];
 	/** The HTTP status the token endpoint answers with, when not 200. */
 	tokenStatus = 200;
+	/** The OAuth error code it answers a 400 or 401 with. */
+	tokenError = 'invalid_grant';
+	/** When set, calls to the token endpoint fail with this instead of answering. */
+	tokenThrows?: Error;
 	/** How long the tokens it issues last, in seconds. */
 	expiresIn = 3600;
 	private readonly spent = new Set<string>();
@@ -42,7 +46,8 @@ class FakeWhoop {
 			this.tokenCalls.push(form);
 			// Keep the refresh in flight long enough for parallel callers to pile up.
 			await new Promise(resolve => setTimeout(resolve, 20));
-			if (this.tokenStatus !== 200) return json({ error: 'failed' }, this.tokenStatus);
+			if (this.tokenThrows) throw this.tokenThrows;
+			if (this.tokenStatus !== 200) return json({ error: this.tokenStatus < 500 ? this.tokenError : 'server_error' }, this.tokenStatus);
 			const presented = form.get('refresh_token');
 			if (presented !== null) {
 				if (this.spent.has(presented)) {
@@ -261,6 +266,65 @@ describe('WhoopClient token refresh', () => {
 		assert.equal(store.tokens?.refresh_token, 'refresh-1');
 	});
 
+	it('clears the mark when WHOOP refuses the app credentials, and says which settings to check', async () => {
+		const whoop = new FakeWhoop();
+		whoop.tokenStatus = 401;
+		whoop.tokenError = 'invalid_client';
+		const store = new MemoryStore(tokens(-1));
+		const client = newClient(whoop, store);
+
+		await assert.rejects(client.cycles(), (error: unknown) => error instanceof WhoopRequestError && /WHOOP_CLIENT_SECRET/.test(error.message));
+		assert.equal(store.tokens?.refresh_started_at, undefined);
+
+		// The operator fixes the secret: no reconnect needed.
+		whoop.tokenStatus = 200;
+		await client.cycles();
+		assert.equal(store.tokens?.refresh_token, 'refresh-1');
+	});
+
+	it("clears the mark when the refresh never left the server, such as when WHOOP's address can't be looked up", async () => {
+		const whoop = new FakeWhoop();
+		whoop.tokenThrows = new TypeError('fetch failed', { cause: Object.assign(new Error('getaddrinfo ENOTFOUND api.prod.whoop.com'), { code: 'ENOTFOUND' }) });
+		const store = new MemoryStore(tokens(-1));
+		const client = newClient(whoop, store);
+
+		await assert.rejects(client.cycles(), (error: unknown) => error instanceof WhoopUnavailableError && /ENOTFOUND/.test(error.message));
+		assert.equal(store.tokens?.refresh_started_at, undefined);
+
+		whoop.tokenThrows = undefined;
+		await client.cycles();
+		assert.equal(store.tokens?.refresh_token, 'refresh-1');
+	});
+
+	it('keeps the mark when the connection failed after the refresh may have been sent', async () => {
+		const whoop = new FakeWhoop();
+		whoop.tokenThrows = new TypeError('fetch failed', { cause: Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }) });
+		const store = new MemoryStore(tokens(-1));
+
+		await assert.rejects(newClient(whoop, store).cycles(), /refresh didn't finish/);
+		assert.equal(typeof store.tokens?.refresh_started_at, 'number');
+	});
+
+	it("still clears the mark after a turned-away refresh when the first attempt to save that fails", async () => {
+		const whoop = new FakeWhoop();
+		whoop.tokenStatus = 429;
+		const store = new MemoryStore(tokens(-1));
+		const client = newClient(whoop, store);
+		const save = store.save.bind(store);
+		let saves = 0;
+		store.save = async saved => {
+			if (++saves >= 2 && saves <= 3) throw new Error('disk full'); // both attempts to clear the mark
+			return save(saved);
+		};
+
+		await assert.rejects(client.cycles(), /disk full/);
+		assert.equal(typeof store.tokens?.refresh_started_at, 'number');
+
+		whoop.tokenStatus = 200;
+		await client.cycles();
+		assert.equal(store.tokens?.refresh_token, 'refresh-1', 'the unspent token was presented, not a reconnect demanded');
+	});
+
 	it('keeps using a token that has not expired yet when WHOOP fails to refresh it', async () => {
 		const whoop = new FakeWhoop();
 		whoop.tokenStatus = 503;
@@ -363,6 +427,19 @@ describe('WhoopClient token refresh', () => {
 		await client.cycles();
 		assert.deepEqual(bearers, ['access-0', 'access-1']);
 		assert.equal(whoop.tokenCalls.length, 1);
+	});
+
+	it("keeps the tokens it has when a new authorization can't be saved", async () => {
+		const whoop = new FakeWhoop((_url, bearer) => (bearer === 'access-0' ? empty() : json({}, 401)));
+		const store = new MemoryStore(tokens(HOUR));
+		const client = newClient(whoop, store);
+		await client.cycles();
+		store.failSaves = 2;
+
+		await assert.rejects(client.exchangeCodeForTokens('code-from-whoop'), /disk full/);
+		await client.cycles();
+		assert.equal(whoop.tokenCalls.length, 1, 'only the code exchange');
+		assert.equal(store.tokens?.refresh_token, 'refresh-0');
 	});
 
 	it("says WHOOP isn't connected without calling it, then picks up tokens saved later", async () => {

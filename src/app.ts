@@ -113,7 +113,10 @@ export function createApp({ config, db, client, authStates, log = logToStdout }:
 			// Saves the tokens and starts using them. No data is fetched until a tool asks.
 			await client.exchangeCodeForTokens(code);
 			res.send('Authorization successful! You can close this window.');
-		} catch {
+		} catch (error) {
+			// The operator's clue when, say, the WHOOP client secret is wrong.
+			const message = error instanceof Error ? error.message : String(error);
+			process.stderr.write(`Connecting WHOOP failed: ${message}\n`);
 			res.status(500).send('Authorization failed. Please try again.');
 		}
 	});

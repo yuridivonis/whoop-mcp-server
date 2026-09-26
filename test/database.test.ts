@@ -83,8 +83,12 @@ describe('upgrading from a version that stored WHOOP data', () => {
 			.run(encrypt('whoop-access'), encrypt('whoop-refresh'), 1_900_000_000_000);
 		old.prepare('INSERT INTO oauth_clients (client_id, client_info) VALUES (?, ?)').run('client-1', '{"client_id":"client-1"}');
 		old.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('mcp_auth_password', 'password-record');
+		// Records an earlier deletion left behind in free pages, which dropping the tables doesn't reach.
+		old.exec('CREATE TABLE scratch (value TEXT)');
+		old.prepare('INSERT INTO scratch VALUES (?)').run(`${MARKER}-leftover-${'x'.repeat(5000)}`);
+		old.exec('DROP TABLE scratch');
 		old.close();
-		assert.ok(readFileSync(path).includes(MARKER), 'the test data is really in the file');
+		assert.ok(readFileSync(path).includes(`${MARKER}-leftover`), 'the leftover is really in the file');
 
 		const db = new WhoopDatabase(path);
 		t.after(() => db.close());
@@ -101,6 +105,35 @@ describe('upgrading from a version that stored WHOOP data', () => {
 		assert.ok(db.getOAuthClient('client-1'));
 		assert.equal(db.getSetting('mcp_auth_password'), 'password-record');
 		assert.ok(logged.some(line => line.startsWith('Deleted the WHOOP data stored by an earlier version.')), 'the operator is told once');
+		assert.equal(db.getSetting('health_data_rewrite_pending'), undefined);
+	});
+
+	it('finishes the job on the next start if the file was never rewritten', t => {
+		t.mock.method(process.stderr, 'write', () => true);
+		const path = tempPath(t);
+		new WhoopDatabase(path).close();
+
+		// As if the server stopped right after dropping the tables: records remain in free pages.
+		const crashed = new Database(path);
+		crashed.exec('CREATE TABLE sleep (id TEXT)');
+		crashed.prepare('INSERT INTO sleep VALUES (?)').run(`${MARKER}-${'x'.repeat(5000)}`);
+		crashed.exec('DROP TABLE sleep');
+		crashed.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('health_data_rewrite_pending', 'true');
+		crashed.close();
+		assert.ok(readFileSync(path).includes(MARKER));
+
+		const db = new WhoopDatabase(path);
+		t.after(() => db.close());
+		assert.ok(!readFileSync(path).includes(MARKER));
+		assert.equal(db.getSetting('health_data_rewrite_pending'), undefined);
+	});
+
+	it('syncs every commit to disk, so a power cut cannot undo a saved token or refresh mark', t => {
+		const db = new WhoopDatabase(tempPath(t));
+		t.after(() => db.close());
+		// A connection setting, so it can only be read through the connection itself.
+		const connection = (db as unknown as { db: Database.Database }).db;
+		assert.equal(connection.pragma('synchronous', { simple: true }), 2);
 	});
 
 	it('does nothing on later starts', t => {

@@ -19,7 +19,8 @@ Each record also carries its start and end times, the timezone offset where it w
 
 The server's SQLite database, on the operator's server, holds only:
 
-- **Whoop tokens,** encrypted;
+- **Whoop tokens,** encrypted, with a note of when a token refresh started, while one is under way;
+- **the MCP clients that have registered,** with their app names and the addresses they return to after signing in;
 - **sign-in codes and tokens** for MCP clients, stored only as hashes;
 - the server's own settings.
 

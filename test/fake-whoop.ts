@@ -36,6 +36,8 @@ export class FakeWhoop {
 	readonly exchangedCodes: string[] = [];
 	/** When set, every API request fails with this HTTP status. */
 	failWith?: number;
+	/** When set, the token endpoint refuses the app's credentials with this HTTP status. */
+	refuseClientWith?: number;
 	/** How long each API request takes, so that requests made together overlap. */
 	delayMs = 0;
 	private issued = 0;
@@ -45,6 +47,7 @@ export class FakeWhoop {
 		if (url.href === TOKEN_URL) {
 			const form = new URLSearchParams(init?.body as URLSearchParams);
 			if (form.get('grant_type') === 'authorization_code') this.exchangedCodes.push(form.get('code') ?? '');
+			if (this.refuseClientWith) return json({ error: 'invalid_client' }, this.refuseClientWith);
 			this.issued++;
 			return json({ access_token: `whoop-access-${this.issued}`, refresh_token: `whoop-refresh-${this.issued}`, expires_in: 3600 });
 		}

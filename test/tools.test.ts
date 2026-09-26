@@ -381,6 +381,16 @@ describe('live data', () => {
 		assert.match(week, new RegExp(`\\| ${label(utcMidnight(-8))} \\| 64% \\|`), 'the local day the shift worker woke up');
 	});
 
+	it("dates a recovery by its cycle's day when the strap synced it days later", async t => {
+		const { whoop, call } = await connect(t);
+		const { cycle, sleep, recovery } = night(9, 58); // asleep 9 nights ago...
+		recovery.created_at = new Date(utcMidnight(-7) + 2 * HOUR).toISOString(); // ...recorded by WHOOP 7 days ago
+		addNights(whoop, [{ cycle, sleep, recovery }]);
+
+		const week = (await call('get_recovery_trends', { days: 7 })).text;
+		assert.match(week, new RegExp(`\\| ${label(utcMidnight(-9))} \\| 58% \\|`));
+	});
+
 	it('shares one request between tools that need the same data at the same moment', async t => {
 		const { whoop, call } = await connect(t);
 		addNights(whoop, [night(0, 80), night(1, 70)]);

@@ -32,6 +32,24 @@ describe('WHOOP authorization callback', () => {
 		assert.deepEqual(server.whoop.exchangedCodes, []);
 	});
 
+	it("tells the operator why WHOOP wouldn't connect", async t => {
+		const logged: string[] = [];
+		t.mock.method(process.stderr, 'write', (chunk: string) => {
+			logged.push(chunk);
+			return true;
+		});
+		server.whoop.refuseClientWith = 401;
+		try {
+			const res = await fetch(`${server.baseUrl}/callback?code=owner-code&state=${server.authStates.issue()}`);
+			assert.equal(res.status, 500);
+			assert.ok(logged.some(line => /^Connecting WHOOP failed: .*WHOOP_CLIENT_SECRET/.test(line)));
+			assert.equal(server.db.getTokens(), null);
+		} finally {
+			server.whoop.refuseClientWith = undefined;
+			server.whoop.exchangedCodes.length = 0;
+		}
+	});
+
 	it('accepts the link from get_auth_url exactly once', async () => {
 		const { tokens } = await signIn(server.baseUrl);
 		const call = await mcpRequest(server.baseUrl, tokens.access_token, {

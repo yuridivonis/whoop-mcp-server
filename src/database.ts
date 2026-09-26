@@ -13,6 +13,8 @@ interface TokenRow {
 
 /** Where versions before 1.3.0 kept a copy of the WHOOP data. */
 const HEALTH_DATA_TABLES = ['cycles', 'recovery', 'sleep', 'workouts', 'sync_state'];
+/** Set while the file still has to be rewritten to finish deleting that copy. */
+const REWRITE_PENDING = 'health_data_rewrite_pending';
 
 /**
  * The server's own state: the encrypted WHOOP tokens, sign-ins for /mcp, and settings.
@@ -31,32 +33,50 @@ export class WhoopDatabase {
 	constructor(dbPath = './whoop.db') {
 		this.db = new Database(dbPath);
 		this.db.pragma('journal_mode = WAL');
-		this.deleteHealthData();
+		// In WAL mode SQLite otherwise syncs to disk only at checkpoints, so a power cut could
+		// undo a saved WHOOP token or refresh mark (see TokenStore). Writes are rare.
+		this.db.pragma('synchronous = FULL');
 		this.initSchema();
+		this.deleteHealthData();
 	}
 
 	/**
-	 * Versions before 1.3.0 kept a copy of the WHOOP data. It's deleted on the first start,
-	 * and the file is rewritten so the data is gone from the disk too: dropping a table only
-	 * marks its pages free, and they keep their contents until something overwrites them.
-	 * The WHOOP tokens and sign-ins are kept.
+	 * Versions before 1.3.0 kept a copy of the WHOOP data. The first start deletes it and
+	 * keeps the WHOOP tokens and sign-ins. Dropping a table only marks its pages free, with
+	 * their contents intact, so secure_delete zeroes them as part of the drop, and a rewrite
+	 * of the file (VACUUM) then clears any records earlier deletions left in free pages.
+	 * The flag saved with the drop makes every start retry the rewrite until it has run.
 	 */
 	private deleteHealthData(): void {
 		const found = HEALTH_DATA_TABLES.filter(table =>
 			this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table),
 		);
-		if (found.length === 0) return;
-
-		this.db.transaction(() => {
-			for (const table of found) {
-				this.db.exec(`DROP TABLE ${table}`);
+		if (found.length > 0) {
+			this.db.pragma('secure_delete = ON');
+			try {
+				this.db.transaction(() => {
+					for (const table of found) {
+						this.db.exec(`DROP TABLE ${table}`);
+					}
+					this.setSetting(REWRITE_PENDING, 'true');
+				})();
+			} finally {
+				this.db.pragma('secure_delete = OFF');
 			}
-		})();
-		this.db.exec('VACUUM');
-		// VACUUM writes the new file through the write-ahead log; this copies it over and
-		// empties the log, so no old page survives there either.
-		this.db.pragma('wal_checkpoint(TRUNCATE)');
-		process.stderr.write('Deleted the WHOOP data stored by an earlier version. The server now fetches it live from WHOOP and keeps no copy.\n');
+			process.stderr.write('Deleted the WHOOP data stored by an earlier version. The server now fetches it live from WHOOP and keeps no copy.\n');
+		}
+		if (this.getSetting(REWRITE_PENDING) === undefined) return;
+
+		try {
+			this.db.exec('VACUUM');
+			// VACUUM writes the new file through the write-ahead log; this copies it over and
+			// empties the log, so no old page survives there either.
+			this.db.pragma('wal_checkpoint(TRUNCATE)');
+			this.db.prepare('DELETE FROM settings WHERE key = ?').run(REWRITE_PENDING);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			process.stderr.write(`Couldn't rewrite the database file to finish deleting the old WHOOP data (${message}). The next start tries again.\n`);
+		}
 	}
 
 	private initSchema(): void {

@@ -22,8 +22,8 @@ interface ToolArguments {
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
-// get_today looks for last night's sleep among this many of the latest sleeps, to get past any naps since.
-const LATEST_SLEEPS = 10;
+// get_today looks for last night's sleep in one page of the latest sleeps, past any naps since.
+const LATEST_SLEEPS = 25;
 
 function formatDuration(millis: number | null | undefined): string {
 	if (!millis) return 'N/A';
@@ -103,15 +103,19 @@ function text(value: string): CallToolResult {
 	return { content: [{ type: 'text', text: value }] };
 }
 
+// Recoveries are dated by their cycle, which starts before the recovery is created: the
+// night before, or days before if the strap synced late. So cycles are fetched this far back.
+const CYCLE_LEAD_DAYS = 3;
+
 /**
  * The period the tools that take days cover: records from the start of the UTC date
- * `days` days ago (`since`). They ask WHOOP for a day more, so each recovery's cycle comes
- * along, and every tool asking for the same days at the same moment makes the same
- * request, which the client then shares.
+ * `days` days ago (`since`). They ask WHOOP for a few days more, so each recovery's
+ * cycle comes along, and every tool asking for the same days at the same moment makes
+ * the same request, which the client then shares.
  */
 function period(days: number): { since: string; query: Query } {
 	const since = new Date(Date.now() - days * DAY_MS).toISOString().slice(0, 10);
-	return { since, query: { start: new Date(Date.parse(since) - DAY_MS).toISOString() } };
+	return { since, query: { start: new Date(Date.parse(since) - CYCLE_LEAD_DAYS * DAY_MS).toISOString() } };
 }
 
 function newestFirst(a: { start: string }, b: { start: string }): number {

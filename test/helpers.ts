@@ -128,15 +128,16 @@ export function authorizeParams(clientId: string, challenge: string, extra: Reco
 	});
 }
 
-/** Submits the sign-in form the way a browser would. */
+/** Submits the sign-in form the way a browser would, with the consent box ticked unless `consent` is false. */
 export function submitPassword(
 	baseUrl: string,
 	params: URLSearchParams,
 	password: string,
-	options: { path?: string; headers?: Record<string, string> } = {},
+	options: { path?: string; headers?: Record<string, string>; consent?: boolean } = {},
 ): Promise<Response> {
 	const form = new URLSearchParams(params);
 	form.set('password', password);
+	if (options.consent !== false) form.set('consent', 'yes');
 	return fetch(`${baseUrl}${options.path ?? '/authorize'}`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...options.headers },

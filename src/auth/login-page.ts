@@ -45,6 +45,10 @@ function page(title: string, body: string): string {
   p strong { color: var(--text); }
   label { display: block; font-size: 0.85rem; margin-bottom: 6px; }
   input[type="password"] { width: 100%; padding: 10px 12px; font-size: 1rem; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: inherit; margin-bottom: 16px; }
+  .consent { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 16px; }
+  .consent input { margin-top: 3px; width: 18px; height: 18px; flex: none; }
+  .consent label { margin: 0; font-size: 0.9rem; line-height: 1.4; }
+  .consent small { display: block; color: var(--muted); font-size: 0.8rem; margin-top: 6px; }
   button { width: 100%; padding: 10px; font-size: 1rem; font-weight: 600; border: 0; border-radius: 8px; background: var(--accent); color: var(--accent-text); cursor: pointer; }
   .notice { background: var(--notice-bg); color: var(--notice); border-radius: 8px; padding: 10px 12px; font-size: 0.85rem; line-height: 1.4; margin-bottom: 16px; }
   .error { background: var(--error-bg); color: var(--error); border-radius: 8px; padding: 10px 12px; font-size: 0.9rem; margin-bottom: 16px; }
@@ -70,19 +74,27 @@ function send(res: Response, status: number, html: string): void {
 	res.status(status).send(html);
 }
 
+/** What the owner allows by ticking the box on the sign-in page. */
+export function consentText(destination: string): string {
+	return `Allow ${destination} to read your WHOOP recovery, sleep, strain and workouts`;
+}
+
 /**
  * The page an MCP client opens when you connect it. It posts back to /authorize with the
  * original OAuth parameters, so the SDK re-validates them before the password is checked.
  *
  * SECURITY: the destination and the warning are the owner's defense against a phishing
  * link: a legitimate sign-in is one they just started themselves, returning to their app.
+ *
+ * WHOOP's terms require explicit opt-in consent before WHOOP data reaches a third party,
+ * and the app is one. So the owner has to tick a box naming where the data goes.
  */
 export function sendLoginPage(res: Response, { client, params, destination, error, status = 200 }: LoginPageOptions): void {
 	const clientName = client.client_name ? escapeHtml(client.client_name) : 'An MCP client';
 
 	send(res, status, page('Sign in', `  <h1>Sign in to your Whoop MCP Server</h1>
-  <p><strong>${clientName}</strong> is asking to read your Whoop data through this server. After you sign in, you'll return to <strong>${escapeHtml(destination)}</strong>.</p>
-  <div class="notice">Only continue if you started this yourself, just now, by connecting this server in your app. If someone sent you this link, close this page: signing in would give them access to your Whoop data.</div>
+  <p><strong>${clientName}</strong> is asking to read your WHOOP data through this server. After you sign in, you'll return to <strong>${escapeHtml(destination)}</strong>.</p>
+  <div class="notice">Only continue if you started this yourself, just now, by connecting this server in your app. If someone sent you this link, close this page: signing in would give them access to your WHOOP data.</div>
   ${error ? `<div class="error" role="alert">${escapeHtml(error)}</div>` : ''}
   <form method="POST" action="/authorize">
     ${hiddenField('client_id', client.client_id)}
@@ -95,7 +107,12 @@ export function sendLoginPage(res: Response, { client, params, destination, erro
     ${hiddenField('resource', params.resource?.href)}
     <label for="password">Server password (MCP_AUTH_PASSWORD)</label>
     <input type="password" id="password" name="password" required autofocus autocomplete="current-password">
-    <button type="submit">Sign in</button>
+    <div class="consent">
+      <input type="checkbox" id="consent" name="consent" value="yes" required>
+      <label for="consent"><strong>${escapeHtml(consentText(destination))}</strong>
+        <small>Each time you ask about your WHOOP data, this server fetches it from WHOOP and sends it to ${escapeHtml(destination)}, whose provider handles it under its own terms. To stop, remove this server from the app, or change MCP_AUTH_PASSWORD to sign every app out.</small></label>
+    </div>
+    <button type="submit">Allow and sign in</button>
   </form>`));
 }
 

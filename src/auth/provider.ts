@@ -198,9 +198,15 @@ export class McpAuthProvider implements OAuthServerProvider {
 		this.checkResource(params.resource);
 
 		const destination = describeRedirect(params.redirectUri);
-		const body = res.req.method === 'POST' ? res.req.body as { password?: unknown } : undefined;
+		const body = res.req.method === 'POST' ? res.req.body as { password?: unknown; consent?: unknown } : undefined;
 		if (body?.password === undefined) {
 			sendLoginPage(res, { client, params, destination });
+			return;
+		}
+
+		// WHOOP's terms require explicit opt-in consent before the app receives any WHOOP data.
+		if (body.consent !== 'yes') {
+			sendLoginPage(res, { client, params, destination, error: `To sign in, tick the box to allow ${destination} to read your WHOOP data.`, status: 400 });
 			return;
 		}
 
@@ -219,6 +225,7 @@ export class McpAuthProvider implements OAuthServerProvider {
 			redirect_uri: params.redirectUri,
 			scopes: (params.scopes ?? []).join(' '),
 			expires_at: Date.now() + AUTH_CODE_TTL_MS,
+			consented_at: Date.now(),
 		});
 
 		const redirectUrl = new URL(params.redirectUri);

@@ -59,6 +59,7 @@ class PasswordSigningClient implements OAuthClientProvider {
 	async redirectToAuthorization(authorizationUrl: URL): Promise<void> {
 		const form = new URLSearchParams(authorizationUrl.searchParams);
 		form.set('password', this.password);
+		form.set('consent', 'yes');
 		const res = await fetch(new URL('/authorize', authorizationUrl), {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

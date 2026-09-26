@@ -4,8 +4,9 @@
 
 | Version | Supported |
 |---------|-----------|
-| 1.1.x   | Yes |
-| 1.0.x   | No. `/mcp` has no authentication. Upgrade as described in [Upgrading from 1.0.0](README.md#upgrading-from-100). |
+| 1.3.x   | Yes |
+| 1.1.x to 1.2.x | No. They keep a copy of your Whoop data. Upgrade as described in [Upgrading to 1.3.0](README.md#upgrading-to-130). |
+| 1.0.x   | No. `/mcp` has no authentication. Upgrade as described in [Upgrading from 1.0.0](README.md#upgrading-from-100), then to 1.3.0. |
 
 ## Reporting a vulnerability
 
@@ -19,6 +20,8 @@ Include what you found, how to reproduce it, and what an attacker could do with 
 
 ## How the server protects your data
 
+- **No stored Whoop data:** every answer is fetched from Whoop when a tool is called, and nothing of it is kept. The database holds only sign-ins, settings and the encrypted Whoop tokens.
+- **Consent:** an app is signed in only after the owner ticks a box on the sign-in page allowing that destination to read their Whoop data.
 - **Sign-in:** `/mcp` requires an OAuth 2.1 access token. Clients register themselves and use PKCE, and the owner signs in with `MCP_AUTH_PASSWORD`. In `http` mode the server refuses to start without a password of at least 16 characters, or with a public URL that isn't https.
 - **Tokens:** access tokens last an hour. Refresh tokens rotate on every use and expire after 30 days unused. Codes and tokens are stored only as SHA-256 hashes, and are only issued for this server's `/mcp`.
 - **Replay protection:** if a code or refresh token is ever used twice, the whole sign-in it belongs to is revoked.
@@ -36,6 +39,6 @@ Include what you found, how to reproduce it, and what an attacker could do with 
 - **Secrets:** use a long random `MCP_AUTH_PASSWORD` and set `ENCRYPTION_SECRET`.
 - **Signing everyone out:** change `MCP_AUTH_PASSWORD` and redeploy. Every existing sign-in stops working, so your MCP clients will ask you to sign in again. Do this if you think your password may have leaked.
 - **Watching for strangers:** every successful sign-in is logged as `Signed in: client <id>, returning to <destination>, app "<name>"`. Check your server logs for any you don't recognize.
-- **If your data was accessed:** you registered your own Whoop developer app, so you are the developer under WHOOP's [API Terms of Use](https://developer.whoop.com/api-terms-of-use/). They require you to notify WHOOP within 48 hours of discovering a security incident (§2.4).
+- **If your data was accessed:** you registered your own Whoop developer app, so you are the developer under WHOOP's [API Terms of Use](https://developer.whoop.com/api-terms-of-use/). Under 2. Company Applications, *Application Security*, you must notify WHOOP of a security incident as soon as possible, and within 48 hours of discovering it, at security-notifications@whoop.com. You must also tell the people affected as the law requires. If your Whoop client secret may have leaked, notify WHOOP at the same address (3. Restrictions; Confidentiality, *Confidentiality*) and rotate it in the Whoop developer dashboard.
 
 Published advisories are listed under [Security → Advisories](https://github.com/yuridivonis/whoop-mcp-server/security/advisories).

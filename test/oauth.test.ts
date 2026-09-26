@@ -277,6 +277,77 @@ describe('sign-in protects /mcp', () => {
 	});
 });
 
+describe('consent to share WHOOP data', () => {
+	let server: TestServer;
+
+	before(async () => {
+		server = await startTestServer();
+	});
+
+	after(async () => {
+		await server.close();
+	});
+
+	it('asks the owner to allow the app, naming where the WHOOP data goes', async () => {
+		const toClaude = await registerClient(server.baseUrl, 'https://claude.ai/api/mcp/auth_callback');
+		const params = authorizeParams(toClaude, pkcePair().challenge, { redirect_uri: 'https://claude.ai/api/mcp/auth_callback' });
+		const page = await (await fetch(`${server.baseUrl}/authorize?${params}`)).text();
+		assert.match(page, /<input type="checkbox" id="consent" name="consent" value="yes" required>/);
+		assert.match(page, /Allow claude\.ai to read your WHOOP recovery, sleep, strain and workouts/);
+
+		const local = await registerClient(server.baseUrl);
+		const localPage = await (await fetch(`${server.baseUrl}/authorize?${authorizeParams(local, pkcePair().challenge)}`)).text();
+		assert.match(localPage, /Allow an app on this computer to read your WHOOP/);
+	});
+
+	it('issues no code, even for the right password, unless the box is ticked', async () => {
+		const clientId = await registerClient(server.baseUrl);
+		for (const consent of [undefined, 'on', 'no']) {
+			const form = new URLSearchParams(authorizeParams(clientId, pkcePair().challenge));
+			form.set('password', PASSWORD);
+			if (consent) form.set('consent', consent);
+			const res = await fetch(`${server.baseUrl}/authorize`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+				body: form,
+				redirect: 'manual',
+			});
+			assert.equal(res.status, 400, String(consent));
+			assert.equal(res.headers.get('location'), null);
+			assert.match(await res.text(), /tick the box to allow an app on this computer to read your WHOOP data/);
+		}
+	});
+
+	it('never signs in from a link, even one carrying the password and the tick', async () => {
+		const clientId = await registerClient(server.baseUrl);
+		const params = authorizeParams(clientId, pkcePair().challenge, { password: PASSWORD, consent: 'yes' });
+		const res = await fetch(`${server.baseUrl}/authorize?${params}`, { redirect: 'manual' });
+		assert.equal(res.status, 200);
+		assert.equal(res.headers.get('location'), null);
+		assert.match(await res.text(), /name="consent"/);
+	});
+
+	it('names where the code goes, not what the app calls itself', async () => {
+		const res = await fetch(`${server.baseUrl}/register`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ client_name: 'claude.ai', redirect_uris: [CLIENT_REDIRECT_URI], token_endpoint_auth_method: 'none' }),
+		});
+		const { client_id: clientId } = await res.json() as { client_id: string };
+		const page = await (await fetch(`${server.baseUrl}/authorize?${authorizeParams(clientId, pkcePair().challenge)}`)).text();
+		assert.match(page, /Allow an app on this computer to read your WHOOP/);
+		assert.doesNotMatch(page, /Allow claude\.ai/);
+	});
+
+	it('records when the owner allowed the app', async () => {
+		const clientId = await registerClient(server.baseUrl);
+		const before = Date.now();
+		const code = await authorizationCode(server.baseUrl, clientId, pkcePair().challenge);
+		const stored = server.db.getOAuthCode(createHash('sha256').update(code).digest('hex'));
+		assert.ok(stored && stored.consented_at >= before && stored.consented_at <= Date.now());
+	});
+});
+
 describe('failed sign-ins', () => {
 	let server: TestServer;
 
@@ -489,6 +560,38 @@ describe('sign-in state', () => {
 				}
 			} finally {
 				await stale.close();
+			}
+		});
+	});
+
+	it('signs every app out once when upgrading from a version that did not ask for consent', async t => {
+		const logged: string[] = [];
+		t.mock.method(process.stderr, 'write', (chunk: string) => {
+			logged.push(chunk);
+			return true;
+		});
+		await withDatabaseFile(async dbPath => {
+			// A 1.2.0 sign-in: an app registered, and its live access token.
+			const first = await startTestServer({ dbPath });
+			const { clientId, tokens } = await signIn(first.baseUrl);
+			await first.close();
+			const legacy = new Database(dbPath);
+			legacy.exec(`
+				CREATE TABLE codes_1_2_0 AS SELECT code_hash, family_id, generation, client_id, code_challenge, redirect_uri, scopes, expires_at, consumed_at FROM oauth_codes;
+				DROP TABLE oauth_codes;
+				ALTER TABLE codes_1_2_0 RENAME TO oauth_codes;
+			`);
+			legacy.close();
+
+			const upgraded = await startTestServer({ dbPath });
+			try {
+				assert.equal((await mcpRequest(upgraded.baseUrl, tokens.access_token, INITIALIZE)).status, 401);
+				assert.ok(logged.some(line => line.startsWith('Signed every app out')));
+				// The app stays registered, so it only has to sign in again, this time with the box.
+				const code = await authorizationCode(upgraded.baseUrl, clientId, pkcePair().challenge);
+				assert.ok(code);
+			} finally {
+				await upgraded.close();
 			}
 		});
 	});

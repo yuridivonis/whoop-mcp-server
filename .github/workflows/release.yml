@@ -1,0 +1,52 @@
+name: Release
+
+# Merging is releasing. When CI passes on main and package.json has a version that isn't
+# tagged yet, this tags that commit and publishes the GitHub release, with notes from its
+# CHANGELOG.md section. Merges that don't change the version release nothing.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+
+jobs:
+  release:
+    # Only CI runs for pushes to this repository's main, never pull requests (a fork's
+    # branch can also be called main).
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Tag and publish the release if the version is new
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "v$version is already released; nothing to do."
+            exit 0
+          fi
+          previous=$(git tag --list 'v*' --sort=-v:refname | head -1 | sed 's/^v//')
+          node scripts/release-notes.mjs "$version" "$previous" > notes.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "v$version" "$SHA" -m "whoop-mcp-server $version"
+          git push origin "v$version"
+          gh release create "v$version" --verify-tag --latest --title "v$version" --notes-file notes.md

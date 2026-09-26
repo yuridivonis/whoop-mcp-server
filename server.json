@@ -24,13 +24,15 @@
           "type": "named",
           "name": "-p",
           "value": "3000:3000",
-          "description": "Publish the server's port on this computer."
+          "description": "Publish the server's port on this computer.",
+          "isRequired": true
         },
         {
           "type": "named",
           "name": "-v",
           "value": "whoop-data:/data",
-          "description": "Keep synced data and the encrypted WHOOP tokens in a named volume, so they survive restarts."
+          "description": "Keep synced data and the encrypted WHOOP tokens in a named volume, so they survive restarts.",
+          "isRequired": true
         }
       ],
       "environmentVariables": [
@@ -60,7 +62,8 @@
         {
           "name": "PUBLIC_URL",
           "description": "The address MCP clients use to reach the server. Keep the default when running it on this computer.",
-          "default": "http://localhost:3000"
+          "default": "http://localhost:3000",
+          "isRequired": true
         },
         {
           "name": "ENCRYPTION_SECRET",

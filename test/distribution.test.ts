@@ -44,14 +44,21 @@ describe('registry listing (server.json)', () => {
 
 	it('only lists settings the server actually reads', () => {
 		for (const { name } of image.environmentVariables) {
-			assert.match(source, new RegExp(`\\b${name}\\b`), `${name} is read somewhere in src/`);
+			assert.match(source, new RegExp(`env(?:\\.${name}\\b|\\[['"]${name}['"]\\])`), `the server reads env.${name}`);
 		}
 	});
 
-	it('points clients at the port the container publishes', () => {
+	it("maps the container's port and data directory the way the Dockerfile sets them", () => {
+		const dockerfile = read('Dockerfile');
+		const containerPort = dockerfile.match(/^ENV PORT=(\d+)$/m)?.[1];
+		const dbPath = dockerfile.match(/^ENV DB_PATH=(\S+)$/m)?.[1] ?? '';
+		const [hostPort, mappedPort] = (image.runtimeArguments.find(arg => arg.name === '-p')?.value ?? '').split(':');
+		const mountPath = (image.runtimeArguments.find(arg => arg.name === '-v')?.value ?? '').split(':')[1];
+		assert.equal(mappedPort, containerPort, 'the -p mapping targets the port the server listens on');
+		assert.ok(mountPath && dbPath.startsWith(`${mountPath}/`), `the volume holds DB_PATH (${dbPath})`);
+
 		const url = new URL(image.transport.url);
-		const published = image.runtimeArguments.find(arg => arg.name === '-p')?.value.split(':')[0];
-		assert.equal(url.port, published);
+		assert.equal(url.port, hostPort, 'clients connect to the published port');
 		assert.equal(image.environmentVariables.find(env => env.name === 'PUBLIC_URL')?.default, url.origin);
 	});
 });
@@ -63,5 +70,9 @@ describe('licence check', () => {
 		assert.ok(!licenseAllowed('GPL-3.0'));
 		assert.ok(!licenseAllowed('MIT AND GPL-3.0'), 'every licence in an AND must be allowed');
 		assert.ok(!licenseAllowed(undefined), 'no declared licence is refused');
+		assert.ok(!licenseAllowed('GPL-3.0 AND (MIT OR ISC)'), 'brackets group before AND applies');
+		assert.ok(licenseAllowed('(MIT OR Apache-2.0) AND BSD-3-Clause'));
+		assert.ok(!licenseAllowed('MIT WITH Classpath-exception-2.0'), 'exceptions are refused');
+		assert.ok(!licenseAllowed('(MIT'), 'malformed expressions are refused');
 	});
 });

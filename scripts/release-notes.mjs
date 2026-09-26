@@ -4,7 +4,7 @@
  *
  * Usage: node scripts/release-notes.mjs <version> [<previous version>]
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const REPO_URL = 'https://github.com/yuridivonis/whoop-mcp-server';
@@ -33,7 +33,8 @@ export function releaseNotes(changelog, version, previousVersion) {
 	return `${notes.join('\n')}\n`;
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+// Run directly (not imported by the tests). realpath, so a symlinked checkout still runs it.
+if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
 	const [version, previousVersion] = process.argv.slice(2);
 	if (!version) {
 		console.error('Usage: node scripts/release-notes.mjs <version> [<previous version>]');

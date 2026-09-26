@@ -147,6 +147,8 @@ export interface DbOAuthCode {
 	scopes: string;
 	expires_at: number;
 	consumed_at: number | null;
+	/** When the owner ticked the box allowing this app to read their WHOOP data. */
+	consented_at: number;
 }
 
 export interface DbOAuthToken {

@@ -80,11 +80,18 @@ export class WhoopDatabase {
 	}
 
 	private initSchema(): void {
-		// Sign-in tables from before sign-in generations lack the generation column. They
-		// only hold sign-in state, so they are dropped and recreated: clients sign in once more.
-		const tokenColumns = this.db.prepare("SELECT name FROM pragma_table_info('oauth_tokens')").all() as { name: string }[];
-		if (tokenColumns.length > 0 && !tokenColumns.some(column => column.name === 'generation')) {
+		// Sign-in tables from before sign-in generations lack the generation column, and
+		// codes from before 1.3.0 were issued without asking for consent. They only hold
+		// sign-in state, so they are dropped and recreated: each app asks to sign in once
+		// more, this time with the consent box.
+		// A table that doesn't exist has no columns, so it counts as up to date.
+		const outdated = (table: string, column: string) => {
+			const columns = this.db.prepare(`SELECT name FROM pragma_table_info('${table}')`).all() as { name: string }[];
+			return columns.length > 0 && !columns.some(existing => existing.name === column);
+		};
+		if (outdated('oauth_tokens', 'generation') || outdated('oauth_codes', 'consented_at')) {
 			this.db.exec('DROP TABLE IF EXISTS oauth_codes; DROP TABLE IF EXISTS oauth_tokens;');
+			process.stderr.write('Signed every app out: they were signed in before this version asked for consent, so each asks to sign in once more.\n');
 		}
 
 		this.db.exec(`
@@ -117,7 +124,8 @@ export class WhoopDatabase {
 				redirect_uri TEXT NOT NULL,
 				scopes TEXT NOT NULL,
 				expires_at INTEGER NOT NULL,
-				consumed_at INTEGER
+				consumed_at INTEGER,
+				consented_at INTEGER NOT NULL
 			);
 
 			CREATE TABLE IF NOT EXISTS oauth_tokens (
@@ -204,9 +212,9 @@ export class WhoopDatabase {
 
 	saveOAuthCode(code: Omit<DbOAuthCode, 'consumed_at'>): void {
 		this.db.prepare(`
-			INSERT INTO oauth_codes (code_hash, family_id, generation, client_id, code_challenge, redirect_uri, scopes, expires_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		`).run(code.code_hash, code.family_id, code.generation, code.client_id, code.code_challenge, code.redirect_uri, code.scopes, code.expires_at);
+			INSERT INTO oauth_codes (code_hash, family_id, generation, client_id, code_challenge, redirect_uri, scopes, expires_at, consented_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`).run(code.code_hash, code.family_id, code.generation, code.client_id, code.code_challenge, code.redirect_uri, code.scopes, code.expires_at, code.consented_at);
 	}
 
 	getOAuthCode(codeHash: string): DbOAuthCode | undefined {

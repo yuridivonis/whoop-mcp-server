@@ -2,7 +2,15 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.3.0] - 2026-09-26
+
+The server no longer keeps a copy of your WHOOP data, and asks before any app receives it. Upgrading takes a few minutes: see [Upgrading to 1.3.0](README.md#upgrading-to-130).
+
+### Added
+
+- **Consent for each app:** the sign-in page names where your WHOOP data goes ("Allow claude.ai to read your WHOOP recovery, sleep, strain and workouts") and doesn't sign in until you tick the box. Apps signed in with an earlier version are signed out once, and ask again. (#16)
+- **WHOOP's terms:** the README explains how the server follows WHOOP's API Terms of Use, citing each paragraph by its section and heading. It also says what you're responsible for if you run the server for someone else. (#16)
+- **Synthetic data only:** tests and evaluations never use real WHOOP data, and the contributing notes say so. (#16)
 
 ### Changed
 
@@ -15,6 +23,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - **Stored WHOOP data:** the first time this version starts, it deletes the recovery, sleep, strain and workout data earlier versions stored, and rewrites the database file so none of it is left on disk. If the rewrite is interrupted, the next start finishes it. Your WHOOP connection and sign-ins are kept. (#15)
 - **`sync_data`:** there's nothing to sync. Reconnect your MCP client once so it drops the tool from its list. (#15)
+
+### Fixed
+
+- **Terms citations:** the README and SECURITY.md cited paragraphs "§4.2(c)" and "§2.4", which WHOOP's terms don't have. (#16)
 
 ## [1.2.0] - 2026-09-26
 

@@ -1,6 +1,8 @@
 # Privacy
 
-This notice describes how a Whoop MCP Server deployment handles your data. Each deployment is run by whoever deployed it (the operator), usually for their own Whoop account. If you run one for other people, adapt this notice and add your contact details. You can link it as your Whoop app's privacy policy.
+This notice describes how a Whoop MCP Server deployment handles your data. Each deployment is run by whoever deployed it (the operator), usually for their own Whoop account, and the operator can link this notice as their Whoop app's privacy policy.
+
+**If you run a deployment for someone else,** you are the developer under WHOOP's API Terms of Use, and this notice has to become yours: add your name and contact details under Contact, and change anything that differs in your setup. The README's [If you run it for someone else](README.md#if-you-run-it-for-someone-else) lists what else you're responsible for.
 
 ## What the server collects
 
@@ -28,7 +30,8 @@ The database and the server's logs live with whichever provider hosts the server
 
 ## Who it's shared with
 
-- **The MCP client you sign in** (for example Claude) receives only the answers to the tools it calls. That client's provider handles your conversations under its own privacy terms.
+- **The MCP client you sign in** (for example Claude) receives only the answers to the tools it calls, and only after you allow it. The sign-in page names where your data goes and asks you to tick a box allowing it. That client's provider handles your conversations under its own privacy terms.
+- **To stop sharing:** remove the server from the app, or have the operator change the server password (`MCP_AUTH_PASSWORD`), which signs every app out.
 - **Nothing else:** the server itself doesn't send your data anywhere else, and has no analytics or tracking. If the operator runs it through a tunnel (such as Cloudflare or ngrok), that provider carries the traffic.
 - **Logs:** the server logs sign-ins (the app's name, its client ID, and where it returned) and errors from Whoop. Neither includes your health data.
 
@@ -39,7 +42,7 @@ The database and the server's logs live with whichever provider hosts the server
 
 ## AI training
 
-The server doesn't use your data to train or improve AI models. WHOOP's [API Terms of Use](https://developer.whoop.com/api-terms-of-use/) also restrict that. The tools' answers do become part of your conversation with the MCP client, and whether that provider uses conversations for training depends on its terms and your settings.
+The server doesn't use your data to train or improve AI models, and the project's tests use synthetic data only. WHOOP's [API Terms of Use](https://developer.whoop.com/api-terms-of-use/) also forbid using WHOOP data to create, develop, test, train or improve AI (4. WHOOP Data, *Prohibitions on WHOOP Data*). The tools' answers do become part of your conversation with the MCP client, and whether that provider uses conversations for training depends on its terms and your settings.
 
 ## Contact
 

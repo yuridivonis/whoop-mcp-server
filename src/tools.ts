@@ -6,7 +6,7 @@ import type { PendingAuthStates } from './auth-states.js';
 import { localDate, localTime, wakeDay } from './days.js';
 import type { WhoopSleep } from './types.js';
 
-export const SERVER_VERSION = '1.3.0';
+export const SERVER_VERSION = '1.3.1';
 
 export interface ToolDeps {
 	client: WhoopClient;

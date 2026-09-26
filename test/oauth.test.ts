@@ -294,6 +294,7 @@ describe('consent to share WHOOP data', () => {
 		const page = await (await fetch(`${server.baseUrl}/authorize?${params}`)).text();
 		assert.match(page, /<input type="checkbox" id="consent" name="consent" value="yes" required>/);
 		assert.match(page, /Allow claude\.ai to read your WHOOP recovery, sleep, strain and workouts/);
+		assert.match(page, /<h1>Connect claude\.ai to your WHOOP data<\/h1>/);
 
 		const local = await registerClient(server.baseUrl);
 		const localPage = await (await fetch(`${server.baseUrl}/authorize?${authorizeParams(local, pkcePair().challenge)}`)).text();
@@ -336,7 +337,75 @@ describe('consent to share WHOOP data', () => {
 		const { client_id: clientId } = await res.json() as { client_id: string };
 		const page = await (await fetch(`${server.baseUrl}/authorize?${authorizeParams(clientId, pkcePair().challenge)}`)).text();
 		assert.match(page, /Allow an app on this computer to read your WHOOP/);
-		assert.doesNotMatch(page, /Allow claude\.ai/);
+		assert.match(page, /<h1>Connect an app on this computer to your WHOOP data<\/h1>/);
+		assert.doesNotMatch(page, /Allow claude\.ai|Connect claude\.ai/);
+	});
+
+	it('sends every version of the page with headers that stop framing, caching and referrers', async () => {
+		const clientId = await registerClient(server.baseUrl);
+		const params = authorizeParams(clientId, pkcePair().challenge);
+		const pages = [
+			await fetch(`${server.baseUrl}/authorize?${params}`),
+			await submitPassword(server.baseUrl, params, PASSWORD, { consent: false }),
+			await submitPassword(server.baseUrl, params, 'wrong password'),
+		];
+		assert.deepEqual(pages.map(page => page.status), [200, 400, 401]);
+		for (const page of pages) {
+			const csp = page.headers.get('content-security-policy') ?? '';
+			assert.match(csp, /default-src 'none'/);
+			assert.match(csp, /frame-ancestors 'none'/);
+			assert.equal(page.headers.get('x-frame-options'), 'DENY');
+			assert.equal(page.headers.get('cache-control'), 'no-store');
+			assert.equal(page.headers.get('referrer-policy'), 'no-referrer');
+		}
+	});
+
+	it("says it's the server password, not the WHOOP one, and that WHOOP doesn't run it", async () => {
+		const clientId = await registerClient(server.baseUrl);
+		const page = await (await fetch(`${server.baseUrl}/authorize?${authorizeParams(clientId, pkcePair().challenge)}`)).text();
+		assert.match(page, /<label class="field" for="password">Server password<\/label>/);
+		assert.match(page, /Not your WHOOP password\./);
+		assert.match(page, /not affiliated with WHOOP\./);
+	});
+
+	it("shows an app's chosen name as text only, short and unable to reorder the page", async () => {
+		const name = `<img src=x onerror=alert(1)>"\u202eevil${'x'.repeat(200)}`;
+		const res = await fetch(`${server.baseUrl}/register`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ client_name: name, redirect_uris: [CLIENT_REDIRECT_URI], token_endpoint_auth_method: 'none' }),
+		});
+		const { client_id: clientId } = await res.json() as { client_id: string };
+		const page = await (await fetch(`${server.baseUrl}/authorize?${authorizeParams(clientId, pkcePair().challenge)}`)).text();
+		assert.doesNotMatch(page, /<img/);
+		assert.ok(!page.includes('\u202e'), 'no bidirectional override');
+		const shown = page.match(/<bdi>([^<]*)<\/bdi>/)?.[1] ?? '';
+		assert.match(shown, /^&lt;img src=x onerror=alert\(1\)&gt;&quot; evil/);
+		assert.ok(shown.length < 160, 'the name is capped');
+	});
+
+	it('posts back every parameter the page was given, so signing in from it works', async () => {
+		const clientId = await registerClient(server.baseUrl);
+		const params = authorizeParams(clientId, pkcePair().challenge, { scope: 'read', resource: `${server.baseUrl}/mcp` });
+		const page = await (await fetch(`${server.baseUrl}/authorize?${params}`)).text();
+		const unescape = (value: string) => value.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+		const form = new URLSearchParams();
+		for (const [, name, value] of page.matchAll(/<input type="hidden" name="([^"]+)" value="([^"]*)">/g)) {
+			form.set(name, unescape(value));
+		}
+		assert.deepEqual([...form.keys()].sort(), ['client_id', 'code_challenge', 'code_challenge_method', 'redirect_uri', 'resource', 'response_type', 'scope', 'state']);
+		form.set('password', PASSWORD);
+		form.set('consent', 'yes');
+		const res = await fetch(`${server.baseUrl}/authorize`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: form,
+			redirect: 'manual',
+		});
+		assert.equal(res.status, 302);
+		const location = new URL(res.headers.get('location') ?? '');
+		assert.ok(location.searchParams.get('code'));
+		assert.equal(location.searchParams.get('state'), 'client-state');
 	});
 
 	it('records when the owner allowed the app', async () => {

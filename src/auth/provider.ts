@@ -16,7 +16,7 @@ import type {
 	OAuthTokens,
 } from '@modelcontextprotocol/sdk/shared/auth.js';
 import type { WhoopDatabase } from '../database.js';
-import { sendLoginPage, sendSignInError } from './login-page.js';
+import { cleanName, sendLoginPage, sendSignInError } from './login-page.js';
 import { describeRedirect, redirectAllowed, redirectHost } from './redirects.js';
 
 // Codes are exchanged seconds after the redirect; anything older is suspect.
@@ -60,12 +60,9 @@ function readPasswordRecord(value: string | undefined): PasswordRecord | null {
 	return null;
 }
 
-/**
- * A client name made safe for the log: control and bidirectional-text characters removed,
- * then quoted, so a name can't add lines, fake fields, or visually reorder the line.
- */
+/** A client name made safe for the log (see cleanName), then quoted, so it can't fake fields. */
 function quotedName(value: string): string {
-	return JSON.stringify(value.replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]/g, ' ').slice(0, 80));
+	return JSON.stringify(cleanName(value));
 }
 
 function fingerprint(password: string, salt: string): Buffer {

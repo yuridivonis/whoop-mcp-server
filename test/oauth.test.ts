@@ -294,6 +294,7 @@ describe('consent to share WHOOP data', () => {
 		const page = await (await fetch(`${server.baseUrl}/authorize?${params}`)).text();
 		assert.match(page, /<input type="checkbox" id="consent" name="consent" value="yes" required>/);
 		assert.match(page, /Allow claude\.ai to read your WHOOP recovery, sleep, strain and workouts/);
+		assert.match(page, /<h1>Connect claude\.ai to your WHOOP data<\/h1>/);
 
 		const local = await registerClient(server.baseUrl);
 		const localPage = await (await fetch(`${server.baseUrl}/authorize?${authorizeParams(local, pkcePair().challenge)}`)).text();
@@ -336,7 +337,8 @@ describe('consent to share WHOOP data', () => {
 		const { client_id: clientId } = await res.json() as { client_id: string };
 		const page = await (await fetch(`${server.baseUrl}/authorize?${authorizeParams(clientId, pkcePair().challenge)}`)).text();
 		assert.match(page, /Allow an app on this computer to read your WHOOP/);
-		assert.doesNotMatch(page, /Allow claude\.ai/);
+		assert.match(page, /<h1>Connect an app on this computer to your WHOOP data<\/h1>/);
+		assert.doesNotMatch(page, /Allow claude\.ai|Connect claude\.ai/);
 	});
 
 	it('records when the owner allowed the app', async () => {

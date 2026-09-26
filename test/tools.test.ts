@@ -212,6 +212,7 @@ describe('tool definitions', () => {
 					{ type: 'integer', minimum: 1, maximum: 90, default: 14 },
 					`${tool.name} states the days limits`,
 				);
+				assert.match(tool.description ?? '', /7 for the last week/, `${tool.name} says how to choose days`);
 			}
 		}
 

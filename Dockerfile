@@ -3,7 +3,7 @@ FROM node:24-slim
 # The MCP Registry checks this label to confirm the image belongs to the server it lists.
 LABEL io.modelcontextprotocol.server.name="io.github.yuridivonis/whoop-mcp-server" \
       org.opencontainers.image.source="https://github.com/yuridivonis/whoop-mcp-server" \
-      org.opencontainers.image.description="Ask Claude about your WHOOP recovery, sleep, strain and workouts. Self-hosted, with sign-in." \
+      org.opencontainers.image.description="Your WHOOP recovery, sleep, strain and workouts in Claude, ChatGPT or any MCP app. Self-hosted." \
       org.opencontainers.image.licenses="MIT"
 
 WORKDIR /app

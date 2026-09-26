@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { licenseAllowed } from '../scripts/check-licenses.mjs';
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
@@ -64,6 +64,15 @@ describe('registry listing (server.json)', () => {
 });
 
 describe('README', () => {
+	it('links only to files that exist', () => {
+		for (const doc of ['README.md', 'SECURITY.md', 'PRIVACY.md', 'docs/add-to-your-ai.md']) {
+			const base = new URL(`../${doc}`, import.meta.url);
+			for (const [, target] of read(doc).matchAll(/\]\((?!https?:|mailto:|#)([^)#\s]+)/g)) {
+				assert.ok(existsSync(new URL(target, base)), `${doc} links to ${target}`);
+			}
+		}
+	});
+
 	it('tells Railway users to deploy the current version, so auto updates start from it', () => {
 		assert.match(read('README.md'), new RegExp(`enter \`ghcr\\.io/yuridivonis/whoop-mcp-server:${version.replace(/\./g, '\\.')}\``));
 	});
@@ -79,10 +88,32 @@ describe('release workflow', () => {
 		assert.match(workflow, /echo "major=\$\{version%%\.\*\}"/);
 	});
 
+	it('publishes to the MCP Registry only a version it does not list yet', () => {
+		assert.match(workflow, /id: listed/);
+		for (const step of ['Install mcp-publisher', 'Sign in to the MCP Registry', 'Publish server.json']) {
+			const block = workflow.slice(workflow.indexOf(`- name: ${step}`)).split('\n').slice(0, 2).join('\n');
+			assert.match(block, /if: steps\.listed\.outputs\.listed != 'true'/, step);
+		}
+	});
+
 	it('moves :latest and the major tag only to the newest release', () => {
 		const moving = workflow.split('\n').filter(line => /:latest|outputs\.major\)/.test(line) && line.includes('format('));
 		assert.equal(moving.length, 2);
 		for (const line of moving) assert.match(line, /needs\.release\.outputs\.newest == 'true' &&/);
+	});
+});
+
+describe('Scorecard workflow', () => {
+	const workflow = read('.github/workflows/scorecard.yml');
+
+	it("keeps to Scorecard's rules for publishing results, which the badge needs", () => {
+		assert.match(workflow, /^permissions: \{\}$/m, 'no workflow-level write permissions');
+		assert.doesNotMatch(workflow, /^(env|defaults):/m, 'no top-level env or defaults');
+		assert.match(workflow, /publish_results: true/);
+		const actions = [...workflow.matchAll(/uses: ([^@\s]+)@([0-9a-f]{40}) #/g)].map(match => match[1]);
+		assert.deepEqual(actions, ['actions/checkout', 'ossf/scorecard-action', 'actions/upload-artifact', 'github/codeql-action/upload-sarif']);
+		assert.equal([...workflow.matchAll(/uses: /g)].length, actions.length, 'every action is pinned to a commit');
+		assert.match(workflow, /runs-on: ubuntu-/);
 	});
 });
 

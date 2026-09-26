@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.1.2] - 2026-09-26
+
+### Changed
+
+- **Tool descriptions:** each tool now says what it returns, when to use it instead of the others, and how it behaves: read-only, refreshes data older than an hour, and asks to connect WHOOP when needed. Tools also have titles and read-only annotations, and the `days` parameter states its range. This helps Claude and other clients choose the right tool. (#11)
+- **Server instructions:** when a client connects, the server tells it how the tools fit together. (#11)
+
+### Added
+
+- **Glama listing:** `glama.json` names the maintainer, so the server's Glama listing is claimed and kept current. (#10)
+
 ## [1.1.1] - 2026-09-25
 
 ### Fixed
@@ -63,6 +74,7 @@ Upgrading takes a few minutes: see [Upgrading from 1.0.0](README.md#upgrading-fr
 
 Initial release: a remote MCP server with Whoop recovery, sleep, and strain tools, a local SQLite cache, and Railway deployment.
 
+[1.1.2]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.1.2
 [1.1.1]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.1.1
 [1.1.0]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.1.0
 [1.0.0]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.0.0

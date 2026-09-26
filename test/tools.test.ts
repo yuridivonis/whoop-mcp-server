@@ -2,7 +2,7 @@
 // formatting in the server's timezone. Set before anything formats a date.
 process.env.TZ = 'America/Los_Angeles';
 
-import { after, before, describe, it } from 'node:test';
+import { after, before, describe, it, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -170,6 +170,60 @@ describe('data tools', () => {
 		const reply = await callTool(server, accessToken, 'get_auth_url');
 		const link = new URL(reply.match(/Visit: (\S+)/)?.[1] ?? '');
 		assert.deepEqual(link.searchParams.get('scope')?.split(' '), ['read:cycles', 'read:recovery', 'read:sleep', 'read:workout', 'offline']);
+	});
+});
+
+describe('tool definitions', () => {
+	async function connect(t: TestContext): Promise<Client> {
+		const server = createMcpServer({
+			db: memoryDb(t),
+			client: {} as WhoopClient,
+			sync: {} as WhoopSync,
+			authStates: new PendingAuthStates(),
+			redirectUri: 'http://localhost:3000/callback',
+			mode: 'http',
+		});
+		const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+		await server.connect(serverSide);
+		const client = new Client({ name: 'test', version: '0' });
+		await client.connect(clientSide);
+		t.after(() => client.close());
+		return client;
+	}
+
+	it('give each tool a title, guidance on when to use it, and honest annotations', async t => {
+		const { tools } = await (await connect(t)).listTools();
+		const names = tools.map(tool => tool.name);
+		assert.equal(tools.length, 7);
+
+		for (const tool of tools) {
+			assert.ok(tool.title, `${tool.name} has a title`);
+			assert.ok((tool.description ?? '').length > 250, `${tool.name} explains what it returns and when to use it`);
+			assert.ok(
+				names.some(other => other !== tool.name && tool.description?.includes(other)),
+				`${tool.name} points to a sibling tool`,
+			);
+			assert.equal(typeof tool.annotations?.readOnlyHint, 'boolean', `${tool.name} says whether it changes anything`);
+			const days = tool.inputSchema.properties?.days as Record<string, unknown> | undefined;
+			if (days) {
+				assert.deepEqual(
+					{ type: days.type, minimum: days.minimum, maximum: days.maximum, default: days.default },
+					{ type: 'integer', minimum: 1, maximum: 90, default: 14 },
+					`${tool.name} states the days limits`,
+				);
+			}
+		}
+
+		const readOnly = tools.filter(tool => tool.annotations?.readOnlyHint).map(tool => tool.name).sort();
+		assert.deepEqual(readOnly, ['get_auth_url', 'get_recovery_trends', 'get_sleep_analysis', 'get_strain_history', 'get_today', 'get_workouts']);
+		const sync = tools.find(tool => tool.name === 'sync_data');
+		assert.equal(sync?.annotations?.destructiveHint, false, 'sync_data writes only its own cache');
+	});
+
+	it('tells clients how the tools fit together when they connect', async t => {
+		const instructions = (await connect(t)).getInstructions() ?? '';
+		assert.match(instructions, /get_today/);
+		assert.match(instructions, /get_auth_url/);
 	});
 });
 

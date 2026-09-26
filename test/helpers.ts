@@ -6,9 +6,8 @@ import { createApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import { WhoopDatabase } from '../src/database.js';
 import { PendingAuthStates } from '../src/auth-states.js';
-import type { WhoopClient } from '../src/whoop-client.js';
-import type { WhoopSync } from '../src/sync.js';
-import type { WhoopTokens } from '../src/types.js';
+import { WhoopClient } from '../src/whoop-client.js';
+import { FakeWhoop } from './fake-whoop.js';
 
 // crypto.ts encrypts stored WHOOP tokens with this.
 process.env.ENCRYPTION_SECRET ??= 'test-encryption-secret';
@@ -20,8 +19,8 @@ export interface TestServer {
 	baseUrl: string;
 	db: WhoopDatabase;
 	authStates: PendingAuthStates;
-	/** Codes the stub WHOOP client was asked to exchange at /callback. */
-	exchangedCodes: string[];
+	/** The WHOOP API the server talks to, serving synthetic records. */
+	whoop: FakeWhoop;
 	close(): Promise<void>;
 }
 
@@ -34,7 +33,7 @@ interface TestServerOptions {
 	log?: (line: string) => void;
 }
 
-/** Starts the real app on a random port, with WHOOP and the sync stubbed out. */
+/** Starts the real app on a random port, talking to a fake WHOOP. */
 export async function startTestServer({ dbPath = ':memory:', password = PASSWORD, env = {}, log = () => {} }: TestServerOptions = {}): Promise<TestServer> {
 	const httpServer = createServer();
 	await new Promise<void>(resolve => httpServer.listen(0, resolve));
@@ -50,28 +49,22 @@ export async function startTestServer({ dbPath = ':memory:', password = PASSWORD
 	});
 	const db = new WhoopDatabase(config.dbPath);
 	const authStates = new PendingAuthStates();
-	const exchangedCodes: string[] = [];
+	const whoop = new FakeWhoop();
+	const client = new WhoopClient({
+		clientId: 'test-client-id',
+		clientSecret: 'test-client-secret',
+		redirectUri: config.redirectUri,
+		store: db.whoopTokens,
+		fetch: whoop.fetch,
+	});
 
-	const client = {
-		getAuthorizationUrl: (scopes: string[], state: string) => `https://whoop.example/auth?${new URLSearchParams({ scope: scopes.join(' '), state })}`,
-		exchangeCodeForTokens: async (code: string): Promise<WhoopTokens> => {
-			exchangedCodes.push(code);
-			return { access_token: 'whoop-access', refresh_token: 'whoop-refresh', expires_at: Date.now() + 3_600_000 };
-		},
-	} as unknown as WhoopClient;
-
-	const sync = {
-		syncDays: async () => ({ cycles: 0, recoveries: 0, sleeps: 0, workouts: 0 }),
-		smartSync: async () => ({ type: 'skip' }),
-	} as unknown as WhoopSync;
-
-	httpServer.on('request', createApp({ config, db, client, sync, authStates, log }));
+	httpServer.on('request', createApp({ config, db, client, authStates, log }));
 
 	return {
 		baseUrl,
 		db,
 		authStates,
-		exchangedCodes,
+		whoop,
 		close: async () => {
 			httpServer.closeAllConnections();
 			await new Promise<void>(resolve => httpServer.close(() => resolve()));

@@ -31,7 +31,7 @@
           "type": "named",
           "name": "-v",
           "value": "whoop-data:/data",
-          "description": "Keep synced data and the encrypted WHOOP tokens in a named volume, so they survive restarts.",
+          "description": "Keep the sign-ins and the encrypted WHOOP tokens in a named volume, so they survive restarts.",
           "isRequired": true
         }
       ],

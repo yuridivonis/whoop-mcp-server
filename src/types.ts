@@ -1,7 +1,36 @@
 export interface WhoopTokens {
 	access_token: string;
 	refresh_token: string;
+	/** When the access token expires, in milliseconds since the epoch. */
 	expires_at: number;
+}
+
+/** Tokens as a TokenStore keeps them. */
+export interface StoredWhoopTokens extends WhoopTokens {
+	/**
+	 * Set just before the refresh token is presented to WHOOP, and cleared by saving the
+	 * result. Found set, it means a refresh never finished: WHOOP may already have replaced
+	 * the refresh token, so it must not be presented again.
+	 */
+	refresh_started_at?: number;
+}
+
+/**
+ * Where a WhoopClient keeps its tokens. WHOOP replaces the refresh token on every refresh
+ * and rejects a used one, so the client re-reads the store before refreshing and saves
+ * the new tokens straight away.
+ */
+export interface TokenStore {
+	/** The stored tokens, or null when WHOOP isn't connected. */
+	load(): Promise<StoredWhoopTokens | null>;
+	/** Replaces the stored tokens, mark included. Must not resolve until they're durably saved. */
+	save(tokens: StoredWhoopTokens): Promise<void>;
+	/**
+	 * Runs fn while no other process can refresh the same tokens. Only needed when several
+	 * processes share the tokens: clients in one process that share a store object already
+	 * refresh one at a time. load() and save() are called inside it, so it must not block them.
+	 */
+	withLock?<T>(fn: () => Promise<T>): Promise<T>;
 }
 
 export interface WhoopCycle {
@@ -103,80 +132,6 @@ export interface WhoopWorkout {
 export interface WhoopPaginatedResponse<T> {
 	records: T[];
 	next_token?: string;
-}
-
-export interface DbCycle {
-	id: number;
-	user_id: number;
-	start_time: string;
-	end_time: string | null;
-	score_state: string;
-	strain: number | null;
-	kilojoule: number | null;
-	avg_hr: number | null;
-	max_hr: number | null;
-	timezone_offset: string | null;
-	synced_at: string;
-}
-
-export interface DbRecovery {
-	id: number;
-	user_id: number;
-	sleep_id: string;
-	created_at: string;
-	score_state: string;
-	recovery_score: number | null;
-	resting_hr: number | null;
-	hrv_rmssd: number | null;
-	spo2: number | null;
-	skin_temp: number | null;
-	synced_at: string;
-}
-
-export interface DbSleep {
-	id: string;
-	user_id: number;
-	cycle_id: number | null;
-	start_time: string;
-	end_time: string;
-	is_nap: number;
-	score_state: string;
-	total_in_bed_milli: number | null;
-	total_awake_milli: number | null;
-	total_light_milli: number | null;
-	total_deep_milli: number | null;
-	total_rem_milli: number | null;
-	sleep_performance: number | null;
-	sleep_efficiency: number | null;
-	sleep_consistency: number | null;
-	respiratory_rate: number | null;
-	sleep_needed_baseline_milli: number | null;
-	sleep_needed_debt_milli: number | null;
-	sleep_needed_strain_milli: number | null;
-	timezone_offset: string | null;
-	synced_at: string;
-}
-
-export interface DbWorkout {
-	id: string;
-	user_id: number;
-	sport_id: number;
-	sport_name: string | null;
-	timezone_offset: string | null;
-	start_time: string;
-	end_time: string;
-	score_state: string;
-	strain: number | null;
-	avg_hr: number | null;
-	max_hr: number | null;
-	kilojoule: number | null;
-	zone_zero_milli: number | null;
-	zone_one_milli: number | null;
-	zone_two_milli: number | null;
-	zone_three_milli: number | null;
-	zone_four_milli: number | null;
-	zone_five_milli: number | null;
-	synced_at: string;
 }
 
 export interface DbOAuthCode {

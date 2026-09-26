@@ -160,7 +160,7 @@ describe('sign-in protects /mcp', () => {
 		const listBody = await readRpc<{ result: { tools: { name: string }[] } }>(list);
 		assert.deepEqual(
 			listBody.result.tools.map(tool => tool.name),
-			['get_today', 'get_recovery_trends', 'get_sleep_analysis', 'get_strain_history', 'get_workouts', 'sync_data', 'get_auth_url'],
+			['get_today', 'get_recovery_trends', 'get_sleep_analysis', 'get_strain_history', 'get_workouts', 'get_auth_url'],
 		);
 	});
 

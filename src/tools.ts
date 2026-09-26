@@ -1,18 +1,15 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema, ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { WhoopAuthError, type WhoopClient } from './whoop-client.js';
-import type { WhoopDatabase } from './database.js';
-import type { WhoopSync } from './sync.js';
+import { WhoopAuthError, type Query, type WhoopClient } from './whoop-client.js';
 import type { PendingAuthStates } from './auth-states.js';
-import { localDate, localTime } from './days.js';
+import { localDate, localTime, wakeDay } from './days.js';
+import type { WhoopSleep } from './types.js';
 
 export const SERVER_VERSION = '1.2.0';
 
 export interface ToolDeps {
-	db: WhoopDatabase;
 	client: WhoopClient;
-	sync: WhoopSync;
 	authStates: PendingAuthStates;
 	redirectUri: string;
 	/** In stdio mode there is no /callback, so get_auth_url explains how to connect instead. */
@@ -21,12 +18,14 @@ export interface ToolDeps {
 
 interface ToolArguments {
 	days?: number;
-	full?: boolean;
 }
 
-const NOT_AUTHENTICATED = 'Not authenticated with Whoop. Use get_auth_url to authorize first.';
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+// get_today looks for last night's sleep among this many of the latest sleeps, to get past any naps since.
+const LATEST_SLEEPS = 10;
 
-function formatDuration(millis: number | null): string {
+function formatDuration(millis: number | null | undefined): string {
 	if (!millis) return 'N/A';
 	const hours = Math.floor(millis / 3_600_000);
 	const minutes = Math.floor((millis % 3_600_000) / 60_000);
@@ -57,15 +56,15 @@ const WHOOP_SCOPES = ['read:cycles', 'read:recovery', 'read:sleep', 'read:workou
 const SERVER_INSTRUCTIONS =
 	"Answers questions about the user's WHOOP data: recovery, sleep, strain and workouts. Start with get_today for how the " +
 	'user is doing today. For patterns over several days, use get_recovery_trends, get_sleep_analysis, get_strain_history ' +
-	'or get_workouts. Data refreshes from WHOOP automatically when it is over an hour old, so sync_data is rarely needed. ' +
+	'or get_workouts. Every call fetches the data live from WHOOP, so answers are current, and the server keeps no copy. ' +
 	"If a tool says WHOOP isn't connected, call get_auth_url and pass its answer to the user. Days are the user's local days, " +
 	"and a night of sleep counts toward the day they woke up. Nothing here changes the user's WHOOP data.";
 
 /** Appended to each data tool's description, so an agent knows what calling it involves. */
 const DATA_TOOL_BEHAVIOR =
-	" Read-only: it never changes the user's WHOOP data. Before answering, it refreshes the local copy from WHOOP if the last " +
-	'sync is over an hour old; if WHOOP is unreachable, it answers from the last sync and says so. If WHOOP isn\'t connected ' +
-	'yet, it returns a message asking to call get_auth_url.';
+	" Read-only: it never changes the user's WHOOP data. It fetches the data live from WHOOP on every call and keeps no copy, " +
+	"so the answer is current; if WHOOP can't be reached, it says so. If WHOOP isn't connected yet, it returns a message " +
+	'asking to call get_auth_url.';
 
 /** For tools that take days: how to pick it, which the schema alone can't say. */
 const DAYS_GUIDANCE = ' Set days to match the question: 7 for the last week, 30 for the last month, up to 90.';
@@ -100,26 +99,38 @@ function validateDays(value: unknown): number {
 	return Math.min(num, 90);
 }
 
-function validateBoolean(value: unknown): boolean {
-	if (typeof value === 'boolean') return value;
-	if (value === 'true') return true;
-	return false;
-}
-
 function text(value: string): CallToolResult {
 	return { content: [{ type: 'text', text: value }] };
 }
 
-/** Explains why the data shown may be stale, instead of silently serving the cache. */
-function syncFailureNote(error: unknown): string {
-	if (error instanceof WhoopAuthError) {
-		return `Note: ${error.message} Showing previously synced data.\n\n`;
-	}
-	const message = error instanceof Error ? error.message : 'Unknown error';
-	return `Note: could not refresh data from Whoop (${message}). Showing previously synced data.\n\n`;
+/**
+ * The period the tools that take days cover: records from the start of the UTC date
+ * `days` days ago (`since`). They ask WHOOP for a day more, so each recovery's cycle comes
+ * along, and every tool asking for the same days at the same moment makes the same
+ * request, which the client then shares.
+ */
+function period(days: number): { since: string; query: Query } {
+	const since = new Date(Date.now() - days * DAY_MS).toISOString().slice(0, 10);
+	return { since, query: { start: new Date(Date.parse(since) - DAY_MS).toISOString() } };
 }
 
-export function createMcpServer({ db, client, sync, authStates, redirectUri, mode }: ToolDeps): Server {
+function newestFirst(a: { start: string }, b: { start: string }): number {
+	return Date.parse(b.start) - Date.parse(a.start);
+}
+
+/**
+ * Time asleep is the sum of the stages. In bed minus awake would also count the time the
+ * strap recorded no data. Null when a stage is missing, rather than a partial total.
+ */
+function timeAsleep(sleep: WhoopSleep): number | null {
+	const stages = sleep.score?.stage_summary;
+	const light = stages?.total_light_sleep_time_milli;
+	const deep = stages?.total_slow_wave_sleep_time_milli;
+	const rem = stages?.total_rem_sleep_time_milli;
+	return light == null || deep == null || rem == null ? null : light + deep + rem;
+}
+
+export function createMcpServer({ client, authStates, redirectUri, mode }: ToolDeps): Server {
 	const server = new Server(
 		{ name: 'whoop-mcp-server', version: SERVER_VERSION },
 		{ capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS }
@@ -195,37 +206,13 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri, mod
 				annotations: DATA_TOOL_ANNOTATIONS,
 			},
 			{
-				name: 'sync_data',
-				title: 'Sync WHOOP data',
-				description:
-					"Pulls the latest data from WHOOP into the server's local copy and reports how many cycles, recoveries, sleeps " +
-					'and workouts it saved. Rarely needed: the other tools already refresh data that is over an hour old. Call it with ' +
-					'full: true to refresh right away (for example, for a workout that just ended), or to re-download the last 90 days ' +
-					'if the automatic sync after connecting failed; without full, it only syncs if the last sync was over an hour ago. ' +
-					"It never changes the user's WHOOP data or deletes anything, so running it again is harmless. If WHOOP isn't " +
-					'connected, it asks for get_auth_url.',
-				inputSchema: {
-					type: 'object',
-					properties: {
-						full: {
-							type: 'boolean',
-							default: false,
-							description: 'true re-downloads the last 90 days now. false (the default) syncs only if the last sync was over an hour ago.',
-						},
-					},
-					required: [],
-				},
-				// Writes to the server's own cache, never to WHOOP.
-				annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
-			},
-			{
 				name: 'get_auth_url',
 				title: 'Connect WHOOP account',
 				description:
 					"Returns a one-time link that connects the user's WHOOP account to this server through WHOOP's own login. Use it " +
 					"when a data tool such as get_today says WHOOP isn't connected or its authorization expired. Give the link to the " +
 					'user to open in a browser: it works once and expires in 10 minutes. Once they have ' +
-					'logged in, the last 90 days sync automatically and get_today works. ' +
+					'logged in, get_today and the other data tools work. ' +
 					"It doesn't read any WHOOP data. A server running in stdio mode can't receive WHOOP's login, so there it returns " +
 					'setup instructions instead.',
 				inputSchema: { type: 'object', properties: {}, required: [] },
@@ -240,60 +227,53 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri, mod
 		const typedArgs = (args ?? {}) as ToolArguments;
 
 		try {
-			let note = '';
-			const dataTools = ['get_today', 'get_recovery_trends', 'get_sleep_analysis', 'get_strain_history', 'get_workouts'];
-			if (dataTools.includes(name)) {
-				if (!db.getTokens()) {
-					return text(NOT_AUTHENTICATED);
-				}
-				try {
-					await sync.smartSync();
-				} catch (error) {
-					note = syncFailureNote(error);
-				}
-			}
-
 			switch (name) {
 				case 'get_today': {
-					const recovery = db.getLatestRecovery();
-					const sleep = db.getLatestSleep();
-					const cycle = db.getLatestCycle();
+					// The latest of each, whatever its date.
+					const [recoveries, sleeps, cycles] = await Promise.all([
+						client.recoveries({ limit: 1 }),
+						client.sleeps({ limit: LATEST_SLEEPS }),
+						client.cycles({ limit: 1 }),
+					]);
+					const [recovery] = recoveries;
+					const sleep = sleeps.find(candidate => !candidate.nap);
+					const [cycle] = cycles;
 
 					if (!recovery && !sleep && !cycle) {
-						return text(`${note}No data available. Try running sync_data first.`);
+						return text('WHOOP has no recovery, sleep or strain data for this account yet.');
 					}
 
-					let response = `${note}# Today's Whoop Summary\n\n`;
+					let response = `# Today's Whoop Summary\n\n`;
 
 					if (recovery) {
-						response += `## Recovery: ${recovery.recovery_score ?? 'N/A'}% ${recovery.recovery_score ? getRecoveryZone(recovery.recovery_score) : ''}\n`;
-						response += `- **HRV**: ${recovery.hrv_rmssd?.toFixed(1) ?? 'N/A'} ms\n`;
-						response += `- **Resting HR**: ${recovery.resting_hr ?? 'N/A'} bpm\n`;
-						if (recovery.spo2) response += `- **SpO2**: ${recovery.spo2.toFixed(1)}%\n`;
-						if (recovery.skin_temp) response += `- **Skin Temp**: ${recovery.skin_temp.toFixed(1)}°C\n`;
+						const score = recovery.score;
+						response += `## Recovery: ${score?.recovery_score ?? 'N/A'}% ${score?.recovery_score ? getRecoveryZone(score.recovery_score) : ''}\n`;
+						response += `- **HRV**: ${score?.hrv_rmssd_milli?.toFixed(1) ?? 'N/A'} ms\n`;
+						response += `- **Resting HR**: ${score?.resting_heart_rate ?? 'N/A'} bpm\n`;
+						if (score?.spo2_percentage) response += `- **SpO2**: ${score.spo2_percentage.toFixed(1)}%\n`;
+						if (score?.skin_temp_celsius) response += `- **Skin Temp**: ${score.skin_temp_celsius.toFixed(1)}°C\n`;
 						response += '\n';
 					}
 
 					if (sleep) {
-						// Time asleep is the sum of the stages. In bed minus awake would also count
-						// the time the strap recorded no data. A missing stage shows N/A, as in get_sleep_analysis.
-						const { total_light_milli: light, total_deep_milli: deep, total_rem_milli: rem } = sleep;
-						const totalSleep = light === null || deep === null || rem === null ? null : light + deep + rem;
+						const score = sleep.score;
+						const stages = score?.stage_summary;
 						response += `## Last Night's Sleep\n`;
-						response += `- **Total Sleep**: ${formatDuration(totalSleep)}\n`;
-						response += `- **Performance**: ${sleep.sleep_performance?.toFixed(0) ?? 'N/A'}%\n`;
-						response += `- **Efficiency**: ${sleep.sleep_efficiency?.toFixed(0) ?? 'N/A'}%\n`;
-						response += `- **Stages**: Light ${formatDuration(sleep.total_light_milli)}, Deep ${formatDuration(sleep.total_deep_milli)}, REM ${formatDuration(sleep.total_rem_milli)}\n`;
-						if (sleep.respiratory_rate) response += `- **Respiratory Rate**: ${sleep.respiratory_rate.toFixed(1)} breaths/min\n`;
+						response += `- **Total Sleep**: ${formatDuration(timeAsleep(sleep))}\n`;
+						response += `- **Performance**: ${score?.sleep_performance_percentage?.toFixed(0) ?? 'N/A'}%\n`;
+						response += `- **Efficiency**: ${score?.sleep_efficiency_percentage?.toFixed(0) ?? 'N/A'}%\n`;
+						response += `- **Stages**: Light ${formatDuration(stages?.total_light_sleep_time_milli)}, Deep ${formatDuration(stages?.total_slow_wave_sleep_time_milli)}, REM ${formatDuration(stages?.total_rem_sleep_time_milli)}\n`;
+						if (score?.respiratory_rate) response += `- **Respiratory Rate**: ${score.respiratory_rate.toFixed(1)} breaths/min\n`;
 						response += '\n';
 					}
 
 					if (cycle) {
+						const score = cycle.score;
 						response += `## Current Strain\n`;
-						response += `- **Day Strain**: ${cycle.strain?.toFixed(1) ?? 'N/A'} ${cycle.strain ? getStrainZone(cycle.strain) : ''}\n`;
-						if (cycle.kilojoule) response += `- **Calories**: ${Math.round(cycle.kilojoule / 4.184)} kcal\n`;
-						if (cycle.avg_hr) response += `- **Avg HR**: ${cycle.avg_hr} bpm\n`;
-						if (cycle.max_hr) response += `- **Max HR**: ${cycle.max_hr} bpm\n`;
+						response += `- **Day Strain**: ${score?.strain?.toFixed(1) ?? 'N/A'} ${score?.strain ? getStrainZone(score.strain) : ''}\n`;
+						if (score?.kilojoule) response += `- **Calories**: ${Math.round(score.kilojoule / 4.184)} kcal\n`;
+						if (score?.average_heart_rate) response += `- **Avg HR**: ${score.average_heart_rate} bpm\n`;
+						if (score?.max_heart_rate) response += `- **Max HR**: ${score.max_heart_rate} bpm\n`;
 					}
 
 					return text(response);
@@ -301,13 +281,30 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri, mod
 
 				case 'get_recovery_trends': {
 					const days = validateDays(typedArgs.days);
-					const trends = db.getRecoveryTrends(days);
+					const { since, query } = period(days);
+					const [recoveries, cycles] = await Promise.all([client.recoveries(query), client.cycles(query)]);
+					const cyclesById = new Map(cycles.map(cycle => [cycle.id, cycle]));
+					// Days are the user's local days (see days.ts): a recovery belongs to the same day as its cycle.
+					const trends = recoveries
+						.flatMap(recovery => {
+							const score = recovery.score;
+							if (score?.recovery_score == null || recovery.created_at < since) return [];
+							const cycle = cyclesById.get(recovery.cycle_id);
+							return [{
+								created_at: recovery.created_at,
+								date: cycle ? wakeDay(cycle.start, cycle.timezone_offset) : recovery.created_at.slice(0, 10),
+								recovery_score: score.recovery_score,
+								hrv: score.hrv_rmssd_milli,
+								rhr: score.resting_heart_rate,
+							}];
+						})
+						.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
 
 					if (trends.length === 0) {
-						return text(`${note}No recovery data available for the requested period.`);
+						return text('No recovery data available for the requested period.');
 					}
 
-					let response = `${note}# Recovery Trends (Last ${days} Days)\n\n`;
+					let response = `# Recovery Trends (Last ${days} Days)\n\n`;
 					response += '| Date | Recovery | HRV | RHR |\n|------|----------|-----|-----|\n';
 
 					for (const day of trends) {
@@ -325,13 +322,28 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri, mod
 
 				case 'get_sleep_analysis': {
 					const days = validateDays(typedArgs.days);
-					const trends = db.getSleepTrends(days);
+					const { since, query } = period(days);
+					// Naps and nights WHOOP hasn't scored are left out. A night counts toward the day the user woke up.
+					const trends = (await client.sleeps(query))
+						.flatMap(sleep => {
+							const performance = sleep.score?.sleep_performance_percentage;
+							if (sleep.nap || performance == null || sleep.start < since) return [];
+							const asleep = timeAsleep(sleep);
+							return [{
+								start: sleep.start,
+								date: wakeDay(sleep.start, sleep.timezone_offset),
+								total_sleep_hours: asleep === null ? null : Math.round(asleep / 36_000) / 100,
+								performance,
+								efficiency: sleep.score?.sleep_efficiency_percentage,
+							}];
+						})
+						.sort(newestFirst);
 
 					if (trends.length === 0) {
-						return text(`${note}No sleep data available for the requested period.`);
+						return text('No sleep data available for the requested period.');
 					}
 
-					let response = `${note}# Sleep Analysis (Last ${days} Days)\n\n`;
+					let response = `# Sleep Analysis (Last ${days} Days)\n\n`;
 					response += '| Date | Duration | Performance | Efficiency |\n|------|----------|-------------|------------|\n';
 
 					for (const day of trends) {
@@ -349,13 +361,26 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri, mod
 
 				case 'get_strain_history': {
 					const days = validateDays(typedArgs.days);
-					const trends = db.getStrainTrends(days);
+					const { since, query } = period(days);
+					const trends = (await client.cycles(query))
+						.flatMap(cycle => {
+							const strain = cycle.score?.strain;
+							if (strain == null || cycle.start < since) return [];
+							const kilojoule = cycle.score?.kilojoule;
+							return [{
+								start: cycle.start,
+								date: wakeDay(cycle.start, cycle.timezone_offset),
+								strain,
+								calories: kilojoule == null ? null : Math.round(kilojoule / 4.184),
+							}];
+						})
+						.sort(newestFirst);
 
 					if (trends.length === 0) {
-						return text(`${note}No strain data available for the requested period.`);
+						return text('No strain data available for the requested period.');
 					}
 
-					let response = `${note}# Strain History (Last ${days} Days)\n\n`;
+					let response = `# Strain History (Last ${days} Days)\n\n`;
 					response += '| Date | Strain | Calories |\n|------|--------|----------|\n';
 
 					for (const day of trends) {
@@ -372,58 +397,39 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri, mod
 
 				case 'get_workouts': {
 					const days = validateDays(typedArgs.days);
-					// The same calendar window as the other tools, not a rolling one.
-					const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-					const workouts = db.getWorkouts(since);
+					const { since, query } = period(days);
+					const workouts = (await client.workouts(query)).filter(workout => workout.start >= since).sort(newestFirst);
 
 					if (workouts.length === 0) {
-						return text(`${note}No workouts recorded in the last ${days} days.`);
+						return text(`No workouts recorded in the last ${days} days.`);
 					}
 
-					let response = `${note}# Workouts (Last ${days} Days)\n\n`;
+					let response = `# Workouts (Last ${days} Days)\n\n`;
 					response += '| Date | Start | Activity | Duration | Strain | Avg HR | Max HR | Zones 4–5 | Calories |\n|------|-------|----------|----------|--------|--------|--------|-----------|----------|\n';
 
 					let totalMillis = 0;
 					let hardZoneMillis = 0;
 					const strains: number[] = [];
 					for (const w of workouts) {
-						const duration = Date.parse(w.end_time) - Date.parse(w.start_time);
+						const score = w.score;
+						const duration = Date.parse(w.end) - Date.parse(w.start);
 						totalMillis += duration;
 						const scored = w.score_state === 'SCORED';
-						const zones = w.zone_four_milli === null && w.zone_five_milli === null ? null : (w.zone_four_milli ?? 0) + (w.zone_five_milli ?? 0);
+						const zone4 = score?.zone_durations?.zone_four_milli;
+						const zone5 = score?.zone_durations?.zone_five_milli;
+						const zones = zone4 == null && zone5 == null ? null : (zone4 ?? 0) + (zone5 ?? 0);
 						hardZoneMillis += zones ?? 0;
-						if (scored && w.strain !== null) strains.push(w.strain);
-						const strain = scored ? w.strain?.toFixed(1) ?? 'N/A' : 'unscored';
-						const calories = w.kilojoule !== null ? `${Math.round(w.kilojoule / 4.184)} kcal` : 'N/A';
+						if (scored && score?.strain != null) strains.push(score.strain);
+						const strain = scored ? score?.strain?.toFixed(1) ?? 'N/A' : 'unscored';
+						const calories = score?.kilojoule != null ? `${Math.round(score.kilojoule / 4.184)} kcal` : 'N/A';
 						const zoneTime = zones === null ? 'N/A' : zones > 0 ? formatDuration(zones) : '0h 0m';
-						response += `| ${formatDate(localDate(w.start_time, w.timezone_offset))} | ${localTime(w.start_time, w.timezone_offset)} | ${sportName(w.sport_name, w.sport_id)} | ${formatDuration(duration)} | ${strain} | ${w.avg_hr ?? 'N/A'} bpm | ${w.max_hr ?? 'N/A'} bpm | ${zoneTime} | ${calories} |\n`;
+						response += `| ${formatDate(localDate(w.start, w.timezone_offset))} | ${localTime(w.start, w.timezone_offset)} | ${sportName(w.sport_name ?? null, w.sport_id)} | ${formatDuration(duration)} | ${strain} | ${score?.average_heart_rate ?? 'N/A'} bpm | ${score?.max_heart_rate ?? 'N/A'} bpm | ${zoneTime} | ${calories} |\n`;
 					}
 
 					const avgStrain = strains.length > 0 ? (strains.reduce((sum, value) => sum + value, 0) / strains.length).toFixed(1) : 'N/A';
 					response += `\n## Totals\n- **Workouts**: ${workouts.length}\n- **Time**: ${formatDuration(totalMillis)}\n- **Average Strain**: ${avgStrain}\n- **Time in heart-rate zones 4–5**: ${hardZoneMillis > 0 ? formatDuration(hardZoneMillis) : '0h 0m'}\n`;
 
 					return text(response);
-				}
-
-				case 'sync_data': {
-					if (!db.getTokens()) {
-						return text(NOT_AUTHENTICATED);
-					}
-
-					const full = validateBoolean(typedArgs.full);
-					let stats;
-
-					if (full) {
-						stats = await sync.syncDays(90);
-					} else {
-						const result = await sync.smartSync();
-						if (result.type === 'skip') {
-							return text('Data is already up to date (synced within the last hour).');
-						}
-						stats = result.stats;
-					}
-
-					return text(`Sync complete!\n- Cycles: ${stats?.cycles}\n- Recoveries: ${stats?.recoveries}\n- Sleeps: ${stats?.sleeps}\n- Workouts: ${stats?.workouts}`);
 				}
 
 				case 'get_auth_url': {
@@ -444,7 +450,15 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri, mod
 					throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
 			}
 		} catch (error) {
+			// Not connected, or the authorization ended: the answer tells the agent what to do next.
+			if (error instanceof WhoopAuthError) {
+				return text(error.message);
+			}
 			const message = error instanceof Error ? error.message : 'Unknown error';
+			// There's no older copy to fall back on, so the operator's log gets the failure too.
+			if (!(error instanceof McpError)) {
+				process.stderr.write(`${name} failed: ${message}\n`);
+			}
 			return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
 		}
 	});

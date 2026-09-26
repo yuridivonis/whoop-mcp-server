@@ -4,11 +4,14 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
 import type { Config } from './config.js';
+import type { WhoopDatabase } from './database.js';
 import { McpAuthProvider, signInGeneration } from './auth/provider.js';
 import { createMcpServer, type ToolDeps } from './tools.js';
 
 export interface AppDeps extends Omit<ToolDeps, 'redirectUri' | 'mode'> {
 	config: Config;
+	/** Sign-ins for /mcp and the WHOOP tokens. */
+	db: WhoopDatabase;
 	/** Where sign-in events go; the server log by default. */
 	log?: (line: string) => void;
 }
@@ -41,7 +44,7 @@ function acceptEventStream(req: Request, _res: Response, next: NextFunction): vo
 	next();
 }
 
-export function createApp({ config, db, client, sync, authStates, log = logToStdout }: AppDeps): express.Express {
+export function createApp({ config, db, client, authStates, log = logToStdout }: AppDeps): express.Express {
 	const app = express();
 	// The rate limits below need the client's address; see TRUST_PROXY in config.ts.
 	app.set('trust proxy', config.trustProxy);
@@ -107,10 +110,8 @@ export function createApp({ config, db, client, sync, authStates, log = logToStd
 		}
 
 		try {
-			const tokens = await client.exchangeCodeForTokens(code);
-			db.saveTokens(tokens);
-			// Runs in the background; WhoopSync logs a failure, and the next tool call retries.
-			sync.syncDays(90).catch(() => {});
+			// Saves the tokens and starts using them. No data is fetched until a tool asks.
+			await client.exchangeCodeForTokens(code);
 			res.send('Authorization successful! You can close this window.');
 		} catch {
 			res.status(500).send('Authorization failed. Please try again.');
@@ -125,7 +126,7 @@ export function createApp({ config, db, client, sync, authStates, log = logToStd
 	// Stateless Streamable HTTP: every request gets its own server and transport, so there
 	// are no sessions to leak, expire or lose on redeploy, and nothing is shared between clients.
 	app.post('/mcp', requireAuth, acceptEventStream, async (req: Request, res: Response) => {
-		const server = createMcpServer({ db, client, sync, authStates, redirectUri: config.redirectUri, mode: 'http' });
+		const server = createMcpServer({ client, authStates, redirectUri: config.redirectUri, mode: 'http' });
 		const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 		res.on('close', () => {
 			transport.close().catch(() => {});

@@ -94,7 +94,7 @@ describe('the official MCP client', () => {
 		const client = new Client({ name: 'test', version: '0' });
 		await client.connect(new StreamableHTTPClientTransport(mcpUrl, { authProvider: auth }));
 		const { tools } = await client.listTools();
-		assert.equal(tools.length, 7);
+		assert.equal(tools.length, 6);
 
 		const today = await client.callTool({ name: 'get_today', arguments: {} });
 		assert.match(JSON.stringify(today.content), /Not authenticated with Whoop/);

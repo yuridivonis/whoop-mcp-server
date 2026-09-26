@@ -16,20 +16,20 @@ describe('WHOOP authorization callback', () => {
 	it('rejects a callback without state', async () => {
 		const res = await fetch(`${server.baseUrl}/callback?code=attacker-code`);
 		assert.equal(res.status, 400);
-		assert.deepEqual(server.exchangedCodes, []);
+		assert.deepEqual(server.whoop.exchangedCodes, []);
 	});
 
 	it('rejects a state this server never issued', async () => {
 		const res = await fetch(`${server.baseUrl}/callback?code=attacker-code&state=made-up`);
 		assert.equal(res.status, 400);
-		assert.deepEqual(server.exchangedCodes, []);
+		assert.deepEqual(server.whoop.exchangedCodes, []);
 	});
 
 	it('reports a denied authorization without exchanging anything', async () => {
 		const state = server.authStates.issue();
 		const res = await fetch(`${server.baseUrl}/callback?error=access_denied&state=${state}`);
 		assert.equal(res.status, 400);
-		assert.deepEqual(server.exchangedCodes, []);
+		assert.deepEqual(server.whoop.exchangedCodes, []);
 	});
 
 	it('accepts the link from get_auth_url exactly once', async () => {
@@ -45,11 +45,11 @@ describe('WHOOP authorization callback', () => {
 
 		const first = await fetch(`${server.baseUrl}/callback?code=owner-code&state=${state}`);
 		assert.equal(first.status, 200);
-		assert.deepEqual(server.exchangedCodes, ['owner-code']);
+		assert.deepEqual(server.whoop.exchangedCodes, ['owner-code']);
 		assert.ok(server.db.getTokens(), 'WHOOP tokens should be saved');
 
 		const replay = await fetch(`${server.baseUrl}/callback?code=second-code&state=${state}`);
 		assert.equal(replay.status, 400);
-		assert.deepEqual(server.exchangedCodes, ['owner-code']);
+		assert.deepEqual(server.whoop.exchangedCodes, ['owner-code']);
 	});
 });

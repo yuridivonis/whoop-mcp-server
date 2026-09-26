@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **Live data:** every tool now fetches its answer from WHOOP when it's called, and the server keeps no copy of your WHOOP data. It stores only its sign-ins and your encrypted WHOOP tokens. Answers take a second or two longer, and if WHOOP can't be reached, tools say so instead of showing older data.
+- **Shared requests:** tools that need the same data at the same moment share one request to WHOOP.
+- **Token refresh:** before refreshing, the server re-reads the stored tokens, so it picks up a reconnect instead of presenting an old token. It marks the tokens before each refresh; if a refresh doesn't finish, it asks you to reconnect rather than present a token WHOOP may already have replaced. A failed save of new tokens is retried before anything else.
+- **Errors:** tools tell apart WHOOP not being connected, its rate limit, and WHOOP being unavailable, and failures go to the server log.
+
+### Removed
+
+- **Stored WHOOP data:** the first time this version starts, it deletes the recovery, sleep, strain and workout data earlier versions stored, and rewrites the database file so none of it is left on disk. Your WHOOP connection and sign-ins are kept.
+- **`sync_data`:** there's nothing to sync. Reconnect your MCP client once so it drops the tool from its list.
+
 ## [1.2.0] - 2026-09-26
 
 ### Added

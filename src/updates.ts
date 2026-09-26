@@ -2,15 +2,19 @@
  * Tells the owner when a newer release is out, so updates reach people who deployed once
  * and forgot about it.
  *
- * At most once a day, the server asks GitHub for this project's latest release number.
- * The request carries nothing about the owner or their data: no identifiers, no version,
- * no counts. It only reveals the server's address to GitHub, like any web request.
+ * Once a day, on a timer that starts with the server, it asks GitHub for this project's
+ * latest release number. The request carries nothing about the owner or their data: no
+ * identifiers, no version, no counts, and its timing doesn't follow their use of the tools.
+ * It only reveals the server's address to GitHub, like any web request.
  * UPDATE_CHECK=false turns it off (see config.ts).
  */
 
 const LATEST_RELEASE_URL = 'https://api.github.com/repos/yuridivonis/whoop-mcp-server/releases/latest';
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 5_000;
+// A release answer is a few kilobytes; anything far bigger isn't one.
+const MAX_RESPONSE_CHARS = 1_000_000;
+const RELEASES_URL = 'https://github.com/yuridivonis/whoop-mcp-server/releases';
 const VERSION = /^v?(\d+)\.(\d+)\.(\d+)$/;
 
 interface UpdateCheckerOptions {
@@ -21,11 +25,8 @@ interface UpdateCheckerOptions {
 	now?: () => number;
 	/** Where the first sighting of a newer version is logged. */
 	log?: (line: string) => void;
-}
-
-interface Release {
-	version: string;
-	url: string;
+	/** Runs fn after ms without keeping the process alive; replaceable in tests. */
+	schedule?: (fn: () => void, ms: number) => void;
 }
 
 function parse(version: string): number[] | null {
@@ -49,7 +50,8 @@ export class UpdateChecker {
 	private readonly fetch: typeof fetch;
 	private readonly now: () => number;
 	private readonly log: (line: string) => void;
-	private latest: Release | null = null;
+	private readonly schedule: (fn: () => void, ms: number) => void;
+	private latest: string | null = null;
 	private checkedAt = -Infinity;
 	private inFlight: Promise<void> | null = null;
 	private announced: string | null = null;
@@ -59,6 +61,12 @@ export class UpdateChecker {
 		this.fetch = options.fetch ?? globalThis.fetch;
 		this.now = options.now ?? Date.now;
 		this.log = options.log ?? (line => process.stderr.write(`${line}\n`));
+		this.schedule = options.schedule ?? ((fn, ms) => setTimeout(fn, ms).unref());
+	}
+
+	/** Checks now, then once a day, until the process exits. */
+	start(): void {
+		void this.check().finally(() => this.schedule(() => this.start(), CHECK_INTERVAL_MS));
 	}
 
 	/** Asks GitHub for the latest release, unless it was asked in the last day. Never throws. */
@@ -72,17 +80,13 @@ export class UpdateChecker {
 		return this.inFlight;
 	}
 
-	/**
-	 * A line for the user when a newer release is out, or null. It answers from what the
-	 * last check found, and starts a new check in the background once a day.
-	 */
+	/** A line for the user when the last check found a newer release, or null. Never contacts GitHub. */
 	notice(): string | null {
-		void this.check();
 		const latest = this.latest;
-		if (!latest || !isNewer(latest.version, this.currentVersion)) return null;
+		if (!latest || !isNewer(latest, this.currentVersion)) return null;
 		return (
-			`Update available: version ${latest.version} of this WHOOP MCP server is out (this one runs ${this.currentVersion}). ` +
-			`Mention it to the user once; whoever runs the server can update it. Release notes: ${latest.url}`
+			`Update available: version ${latest} of this WHOOP MCP server is out (this one runs ${this.currentVersion}). ` +
+			`Mention it to the user once; whoever runs the server can update it. Release notes: ${RELEASES_URL}/tag/v${latest}`
 		);
 	}
 
@@ -93,17 +97,18 @@ export class UpdateChecker {
 				signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
 			});
 			if (!response.ok) return;
-			const body = await response.json() as { tag_name?: unknown; html_url?: unknown };
-			if (typeof body.tag_name !== 'string' || !parse(body.tag_name)) return;
-			const version = body.tag_name.replace(/^v/, '');
-			// Only link to this project's own release pages.
-			const url = typeof body.html_url === 'string' && body.html_url.startsWith('https://github.com/yuridivonis/whoop-mcp-server/')
-				? body.html_url
-				: 'https://github.com/yuridivonis/whoop-mcp-server/releases';
-			this.latest = { version, url };
+			const text = await response.text();
+			if (text.length > MAX_RESPONSE_CHARS) return;
+			const body = JSON.parse(text) as { tag_name?: unknown };
+			// Only the version number is used, rebuilt from its digits, so nothing else in the
+			// answer can reach the log or the model.
+			const numbers = typeof body.tag_name === 'string' ? parse(body.tag_name) : null;
+			if (!numbers) return;
+			const version = numbers.join('.');
+			this.latest = version;
 			if (isNewer(version, this.currentVersion) && this.announced !== version) {
 				this.announced = version;
-				this.log(`A newer version of whoop-mcp-server is out: ${version} (this server runs ${this.currentVersion}). See ${url}`);
+				this.log(`A newer version of whoop-mcp-server is out: ${version} (this server runs ${this.currentVersion}). See ${RELEASES_URL}/tag/v${version}`);
 			}
 		} catch {
 			// Offline, blocked or rate-limited: try again tomorrow. It's only a courtesy.

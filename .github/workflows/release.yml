@@ -86,7 +86,7 @@ jobs:
             echo "Publishing the image and listing for the existing v$REQUESTED ($sha)."
             # Republishing an older version must not move :latest or the major tag back to it.
             newest=false
-            [ "$(git tag --list 'v*' --sort=-v:refname | head -1)" = "v$REQUESTED" ] && newest=true
+            if [ "$(git tag --list 'v*' --sort=-v:refname | head -1)" = "v$REQUESTED" ]; then newest=true; fi
             { echo "version=$REQUESTED"; echo "major=${REQUESTED%%.*}"; echo "newest=$newest"; echo "sha=$sha"; echo "released=true"; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -106,7 +106,7 @@ jobs:
           git push origin "v$version"
           gh release create "v$version" --verify-tag --latest --title "v$version" --notes-file notes.md
           newest=false
-          [ "$(git tag --list 'v*' --sort=-v:refname | head -1)" = "v$version" ] && newest=true
+          if [ "$(git tag --list 'v*' --sort=-v:refname | head -1)" = "v$version" ]; then newest=true; fi
           { echo "newest=$newest"; echo "released=true"; } >> "$GITHUB_OUTPUT"
 
   image:

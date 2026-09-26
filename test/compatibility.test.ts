@@ -5,8 +5,9 @@ import { INITIALIZE, PASSWORD, mcpRequest, pkcePair, postToken, readRpc, startTe
 
 /**
  * Each way an MCP client signs in, run end to end: register, open the sign-in page, allow
- * and sign in, exchange the code, call the tools, refresh. The apps named are the ones
- * known to sign in this way; README's compatibility table records which were tested live.
+ * and sign in, exchange the code, call the tools, refresh. These show the server accepts
+ * what each app is documented or known to send, not that the app sends it: Claude and
+ * ChatGPT were also tested live (26 Sep 2026); the others weren't yet.
  */
 interface SignInStyle {
 	name: string;
@@ -41,6 +42,8 @@ const STYLES: SignInStyle[] = [
 	{ name: 'a local app on localhost, sending no resource', redirectUri: 'http://localhost:6274/oauth/callback', destination: 'an app on this computer', resource: () => undefined, tokenAuth: 'none' },
 	{ name: 'a desktop app link (Cursor)', redirectUri: 'cursor://anysphere.cursor-mcp/oauth/callback', destination: 'the cursor app on this device', resource: mcp, tokenAuth: 'none' },
 	{ name: 'a desktop app link (VS Code)', redirectUri: 'vscode://vscode.mcp/oauth/callback', destination: 'the vscode app on this device', resource: mcp, tokenAuth: 'none' },
+	{ name: 'a desktop app link (VS Code Insiders)', redirectUri: 'vscode-insiders://vscode.mcp/oauth/callback', destination: 'the vscode-insiders app on this device', resource: mcp, tokenAuth: 'none' },
+	{ name: 'a desktop app link (Windsurf)', redirectUri: 'windsurf://codeium.windsurf/oauth/callback', destination: 'the windsurf app on this device', resource: mcp, tokenAuth: 'none' },
 ];
 
 async function register(baseUrl: string, style: SignInStyle): Promise<{ client_id: string; client_secret?: string }> {
@@ -180,9 +183,13 @@ describe("the MCP authorization spec's requirements", () => {
 				body: form,
 				redirect: 'manual',
 			});
-			const location = res.headers.get('location');
-			const code = location ? new URL(location).searchParams.get('code') : null;
-			assert.equal(code, null, `no code for ${JSON.stringify(extra)}`);
+			// Refused as a bad request, sent back to the app, with no code.
+			assert.equal(res.status, 302, JSON.stringify(extra));
+			const back = new URL(res.headers.get('location') ?? '');
+			assert.equal(`${back.origin}${back.pathname}`, STYLES[0].redirectUri);
+			assert.equal(back.searchParams.get('error'), 'invalid_request');
+			assert.match(back.searchParams.get('error_description') ?? '', /code_challenge/);
+			assert.equal(back.searchParams.get('code'), null);
 		}
 	});
 

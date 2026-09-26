@@ -63,6 +63,12 @@ describe('registry listing (server.json)', () => {
 	});
 });
 
+describe('README', () => {
+	it('tells Railway users to deploy the current version, so auto updates start from it', () => {
+		assert.match(read('README.md'), new RegExp(`enter \`ghcr\\.io/yuridivonis/whoop-mcp-server:${version.replace(/\./g, '\\.')}\``));
+	});
+});
+
 describe('release workflow', () => {
 	const workflow = read('.github/workflows/release.yml');
 

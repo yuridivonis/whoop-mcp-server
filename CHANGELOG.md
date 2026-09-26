@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- **Install from the image, not a fork:** the README now deploys the published image on Railway, with Railway's auto updates moving it to each new 1.x release, and says how to switch an existing fork-based deployment over. Forking is described only as the way to change the code. (#18)
+
 ### Added
 
 - **Update notice:** once a day, the server asks GitHub for the latest release number. When a newer version is out, `get_today`'s answer ends with a one-line notice, and the server log says so once. The request carries nothing about you or your data, and `UPDATE_CHECK=false` turns it off. (#18)

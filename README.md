@@ -35,24 +35,28 @@ Built on the [Whoop Developer API v2](https://developer.whoop.com/docs/introduct
 
 1. In the [Whoop Developer Dashboard](https://developer-dashboard.whoop.com), create an app and fill in:
    - **Contacts**: your email. Only Whoop sees it.
-   - **Privacy Policy**: the [PRIVACY.md](PRIVACY.md) in your fork, e.g. `https://github.com/<you>/whoop-mcp-server/blob/main/PRIVACY.md`. People see this link when they approve the app.
+   - **Privacy Policy**: this project's [PRIVACY.md](PRIVACY.md), `https://github.com/yuridivonis/whoop-mcp-server/blob/main/PRIVACY.md`, or your own adapted copy if you run the server for someone else. People see this link when they approve the app.
    - **Redirect URL**: your server's callback, e.g. `https://your-app.up.railway.app/callback`
    - **Scopes**: `read:recovery`, `read:cycles`, `read:sleep`, and `read:workout`. The server doesn't use the others. The login also asks for `offline`, which lets the server renew its Whoop access without you logging in again; the dashboard doesn't list it.
    - **Webhooks**: leave empty.
 2. Note your **Client ID** and **Client Secret**.
 
-### 2. Deploy to Railway
+### 2. Deploy
 
-1. Fork this repo to your GitHub account
-2. Create a new project on [Railway](https://railway.app) and deploy it from your fork
-3. Add environment variables:
+Every release is published as a ready-made image, `ghcr.io/yuridivonis/whoop-mcp-server`. Deploy that: there's no need to fork this repository unless you want to change the code (see [Changing the code](#changing-the-code)). The steps below use [Railway](https://railway.com); to run it anywhere else, see [Docker](#docker).
+
+1. In a Railway project, click **New**, choose **Docker Image**, and enter `ghcr.io/yuridivonis/whoop-mcp-server:1.3.0`.
+2. Add environment variables:
    - `WHOOP_CLIENT_ID`: Your Whoop app client ID
    - `WHOOP_CLIENT_SECRET`: Your Whoop app client secret
    - `WHOOP_REDIRECT_URI`: `https://your-app.up.railway.app/callback`
    - `MCP_AUTH_PASSWORD`: the password Claude will ask for when you connect. Generate one with `openssl rand -base64 24` and keep it in your password manager. The server refuses to start without it (at least 16 characters).
    - `ENCRYPTION_SECRET` (optional, recommended): generate one with `openssl rand -base64 32`. It encrypts your stored Whoop tokens, so rotating the Whoop client secret later won't disconnect your account.
-4. Add a volume mounted at `/data`. It holds the sign-ins and your encrypted Whoop tokens; without it, every redeploy signs Claude out and disconnects Whoop.
+3. Add a volume mounted at `/data`. It holds the sign-ins and your encrypted Whoop tokens; without it, every redeploy signs Claude out and disconnects Whoop.
+4. Turn on updates: in the service's **Settings**, under **Source**, choose **Configure Auto Updates**, pick **minor updates and patches**, and a maintenance window (for example **Night**). Railway then moves the service to each new 1.x release by itself, and on the Pro plan backs up the volume first.
 5. Deploy, then open `https://your-app.up.railway.app/health` to check it's running.
+
+**Already running a fork on Railway?** Switch it to the image: open the service's **Settings**, change **Service Source** to the Docker image above, and turn on auto updates as in step 4. Keep the same variables and volume, so Claude stays signed in and Whoop stays connected. Your fork is then no longer used.
 
 ### 3. Connect Claude
 
@@ -82,7 +86,7 @@ Claude stays signed in across redeploys. Anyone without the password gets `401 U
 
 1.3.0 stops keeping a copy of your Whoop data, and asks you before each app receives it. To upgrade:
 
-1. Update your fork (GitHub's **Sync fork** button) or pull the new Docker image, then redeploy.
+1. Get the new version: with the image, Railway's auto updates do it for you, or redeploy (Docker: pull `:1` again). With a fork, use GitHub's **Sync fork** button, then redeploy.
 2. On its first start, the server deletes the recovery, sleep, strain and workout data earlier versions stored, and rewrites the database file so none of it is left on disk. Your Whoop connection is kept. The log says `Deleted the WHOOP data stored by an earlier version`.
 3. Every app is signed out once. The next time you use one, it opens the sign-in page: enter your password and tick the box allowing it to read your Whoop data.
 4. `sync_data` is gone. If your app still lists it, remove the connector and add it again.
@@ -197,6 +201,10 @@ Whoop's redirect URLs must be `https` (or an app scheme), so a server on your co
 Quick tunnels get a new address every time they start, so you'd repeat steps 1 to 3; a named tunnel keeps one address. The tunnel provider carries the traffic, including the tools' answers.
 
 `MCP_MODE=stdio` runs the server for MCP clients that start it as a local command. It has no sign-in, because only the app that started it can reach it. It can't receive the Whoop login either, so connect Whoop once with the server in `http` mode and the same `DB_PATH`, stop it, then start the `stdio` server. Don't run both at once: Whoop replaces the refresh token on every use, so two servers sharing one database log each other out.
+
+## Changing the code
+
+To run your own changes, fork this repository and deploy the fork instead of the image: on Railway, **New → GitHub Repo**, which builds the Dockerfile. A fork doesn't update itself: to pick up new releases, use GitHub's **Sync fork** button and redeploy, and merge your changes as you go. If you don't need changes, the image is simpler and keeps itself up to date.
 
 ## Environment Variables
 

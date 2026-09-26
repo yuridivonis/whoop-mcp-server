@@ -26,8 +26,14 @@ const client = new WhoopClient({
 	store: db.whoopTokens,
 });
 const authStates = new PendingAuthStates();
-const updates = config.updateCheck ? new UpdateChecker({ currentVersion: SERVER_VERSION }) : undefined;
-void updates?.check();
+// In stdio mode stdout carries the MCP connection, so the log goes to stderr there.
+const updates = config.updateCheck
+	? new UpdateChecker({
+		currentVersion: SERVER_VERSION,
+		log: line => (config.mode === 'stdio' ? process.stderr : process.stdout).write(`${line}\n`),
+	})
+	: undefined;
+updates?.start();
 
 async function main(): Promise<void> {
 	if (config.mode === 'stdio') {

@@ -38,12 +38,16 @@ const STYLES: SignInStyle[] = [
 		resource: baseUrl => baseUrl,
 		tokenAuth: 'client_secret_post',
 	},
-	{ name: 'a local app on a loopback port (Claude Code, Claude Desktop)', redirectUri: 'http://127.0.0.1:33418/callback', destination: 'an app on this computer', resource: mcp, tokenAuth: 'none' },
-	{ name: 'a local app on localhost, sending no resource', redirectUri: 'http://localhost:6274/oauth/callback', destination: 'an app on this computer', resource: () => undefined, tokenAuth: 'none' },
-	{ name: 'a desktop app link (Cursor)', redirectUri: 'cursor://anysphere.cursor-mcp/oauth/callback', destination: 'the cursor app on this device', resource: mcp, tokenAuth: 'none' },
-	{ name: 'a desktop app link (VS Code)', redirectUri: 'vscode://vscode.mcp/oauth/callback', destination: 'the vscode app on this device', resource: mcp, tokenAuth: 'none' },
-	{ name: 'a desktop app link (VS Code Insiders)', redirectUri: 'vscode-insiders://vscode.mcp/oauth/callback', destination: 'the vscode-insiders app on this device', resource: mcp, tokenAuth: 'none' },
-	{ name: 'a desktop app link (Windsurf)', redirectUri: 'windsurf://codeium.windsurf/oauth/callback', destination: 'the windsurf app on this device', resource: mcp, tokenAuth: 'none' },
+	// The loopback callbacks below are the ones each app's own docs give (Sep 2026).
+	{ name: 'Claude Code, on localhost with a random port', redirectUri: 'http://localhost:54213/callback', destination: 'an app on this computer', resource: mcp, tokenAuth: 'none' },
+	{ name: 'VS Code, on 127.0.0.1:33418 with no path', redirectUri: 'http://127.0.0.1:33418', destination: 'an app on this computer', resource: mcp, tokenAuth: 'none' },
+	{ name: 'Cursor, on localhost:8787', redirectUri: 'http://localhost:8787/callback', destination: 'an app on this computer', resource: mcp, tokenAuth: 'none' },
+	{ name: 'a local app sending no resource (the MCP Inspector)', redirectUri: 'http://localhost:6274/oauth/callback', destination: 'an app on this computer', resource: () => undefined, tokenAuth: 'none' },
+	// Desktop app links, which some app versions use instead of a loopback address.
+	{ name: 'a desktop app link (cursor://)', redirectUri: 'cursor://anysphere.cursor-mcp/oauth/callback', destination: 'the cursor app on this device', resource: mcp, tokenAuth: 'none' },
+	{ name: 'a desktop app link (vscode://)', redirectUri: 'vscode://vscode.mcp/oauth/callback', destination: 'the vscode app on this device', resource: mcp, tokenAuth: 'none' },
+	{ name: 'a desktop app link (vscode-insiders://)', redirectUri: 'vscode-insiders://vscode.mcp/oauth/callback', destination: 'the vscode-insiders app on this device', resource: mcp, tokenAuth: 'none' },
+	{ name: 'a desktop app link (windsurf://)', redirectUri: 'windsurf://codeium.windsurf/oauth/callback', destination: 'the windsurf app on this device', resource: mcp, tokenAuth: 'none' },
 ];
 
 async function register(baseUrl: string, style: SignInStyle): Promise<{ client_id: string; client_secret?: string }> {
@@ -107,9 +111,10 @@ describe('sign-in compatibility', () => {
 				redirect: 'manual',
 			});
 			assert.equal(signedIn.status, 302);
-			const location = signedIn.headers.get('location') ?? '';
-			assert.ok(location.startsWith(`${style.redirectUri}?`), `returns to ${style.redirectUri}`);
-			const returned = new URL(location);
+			const returned = new URL(signedIn.headers.get('location') ?? '');
+			const address = new URL(returned);
+			address.search = '';
+			assert.equal(address.href, new URL(style.redirectUri).href, `returns to ${style.redirectUri}`);
 			assert.equal(returned.searchParams.get('state'), 'app-state');
 			const code = returned.searchParams.get('code') ?? '';
 
@@ -173,7 +178,7 @@ describe("the MCP authorization spec's requirements", () => {
 
 	it('requires PKCE with S256', async () => {
 		const client = await register(server.baseUrl, STYLES[0]);
-		const base = { client_id: client.client_id, redirect_uri: STYLES[0].redirectUri, response_type: 'code', state: 's' };
+		const base: Record<string, string> = { client_id: client.client_id, redirect_uri: STYLES[0].redirectUri, response_type: 'code', state: 's' };
 		const attempts: Record<string, string>[] = [{}, { code_challenge: pkcePair().challenge, code_challenge_method: 'plain' }];
 		for (const extra of attempts) {
 			const form = new URLSearchParams({ ...base, ...extra, password: PASSWORD, consent: 'yes' });

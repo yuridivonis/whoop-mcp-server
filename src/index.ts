@@ -47,7 +47,7 @@ async function main(): Promise<void> {
 	const app = createApp({ config, db, client, authStates, updates });
 	const server = app.listen(config.port, '0.0.0.0', () => {
 		process.stdout.write(`Whoop MCP server running on http://0.0.0.0:${config.port}\n`);
-		process.stdout.write(`Connect Claude to ${new URL('/mcp', config.publicUrl).href}\n`);
+		process.stdout.write(`Connect your AI app to ${new URL('/mcp', config.publicUrl).href}\n`);
 	});
 
 	const shutdown = (): void => {

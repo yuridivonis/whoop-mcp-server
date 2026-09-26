@@ -1,0 +1,44 @@
+name: Scorecard
+
+# OpenSSF Scorecard rates this repository's supply-chain practices (pinned actions,
+# token permissions, reviews, dependency updates and more) and publishes the result,
+# which the README's badge shows. The job follows Scorecard's rules for publishing: no
+# workflow-level write permissions, and only the approved actions below.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '23 4 * * 1'
+  branch_protection_rule:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    if: github.repository == 'yuridivonis/whoop-mcp-server'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+      # Upload the results to the Security tab, and publish them for the badge.
+      security-events: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Scorecard results
+          path: results.sarif
+          retention-days: 5
+      - uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: results.sarif

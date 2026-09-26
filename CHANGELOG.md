@@ -2,17 +2,24 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.4.0] - 2026-09-26
+
+Works with the AI you use, and tells you when an update is out. Nothing to do when upgrading: redeploy, or let Railway's auto updates do it.
 
 ### Added
 
+- **Add to your AI:** a new page, [docs/add-to-your-ai.md](https://github.com/yuridivonis/whoop-mcp-server/blob/main/docs/add-to-your-ai.md), with steps for Claude, ChatGPT, Claude Code, Cursor, VS Code and Windsurf, and a dated compatibility table saying which were tested live. (#19)
+- **Threat model:** SECURITY.md says in plain English what the server protects, against whom, and what it can't defend against. (#19)
+- **OpenSSF Scorecard:** a weekly rating of the repository's supply-chain practices, shown as a badge in the README. (#19)
 - **Update notice:** once a day, the server asks GitHub for the latest release number. When a newer version is out, `get_today`'s answer ends with a one-line notice, and the server log says so once. The request carries nothing about you or your data, and `UPDATE_CHECK=false` turns it off. (#18)
 - **A stable image tag:** every release is also published as `ghcr.io/yuridivonis/whoop-mcp-server:1`, which follows the newest 1.x release, so redeploying picks up updates without breaking changes. Republishing an older release no longer moves `:latest` back. (#18)
 - **Sign-in compatibility tests:** each way apps sign in is tested end to end, from registration to refresh. That covers Claude on claude.ai and claude.com, ChatGPT with either of its callback addresses and its bare-address resource, local apps, and desktop app links. The tests also check the MCP authorization spec's requirements: discovery metadata, PKCE with S256, and tokens only in the Authorization header. (#18)
 
 ### Changed
 
+- **Your choice of AI:** the README, the MCP Registry listing and the image description now say the server works with Claude, ChatGPT or other MCP apps, and the README's first screen shows the two ways in: talk to your data, or build with it (the library is coming). (#19)
 - **Install from the image, not a fork:** the README now deploys the published image on Railway, with Railway's auto updates moving it to each new 1.x release, and says how to switch an existing fork-based deployment over. Forking is described only as the way to change the code. (#18)
+- **Releases:** republishing a version by hand skips the MCP Registry when it already lists that version, instead of failing, and CI runs on a pinned Ubuntu version. (#19)
 
 ## [1.3.1] - 2026-09-26
 
@@ -136,6 +143,7 @@ Upgrading takes a few minutes: see [Upgrading from 1.0.0](README.md#upgrading-fr
 
 Initial release: a remote MCP server with Whoop recovery, sleep, and strain tools, a local SQLite cache, and Railway deployment.
 
+[1.4.0]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.0
 [1.3.1]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.3.1
 [1.3.0]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.3.0
 [1.2.0]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.2.0

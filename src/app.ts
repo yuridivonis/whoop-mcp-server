@@ -94,13 +94,13 @@ export function createApp({ config, db, client, authStates, updates, log = logTo
 		const { code, state, error } = req.query;
 
 		if (error !== undefined) {
-			res.status(400).send('Whoop authorization was not completed. Ask Claude for a new link with get_auth_url.');
+			res.status(400).send('Whoop authorization was not completed. Ask your AI for a new link with get_auth_url.');
 			return;
 		}
 
 		// SECURITY: only accept callbacks for links this server issued, once each.
 		if (typeof state !== 'string' || !authStates.consume(state)) {
-			res.status(400).send('This authorization link is invalid or has expired. Ask Claude for a new one with get_auth_url.');
+			res.status(400).send('This authorization link is invalid or has expired. Ask your AI for a new one with get_auth_url.');
 			return;
 		}
 

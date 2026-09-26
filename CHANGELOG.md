@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.1.3] - 2026-09-26
+
+### Changed
+
+- **Choosing a period:** the tools that take `days` now say how to pick it: 7 for the last week, 30 for the last month, up to 90. (#13)
+
 ## [1.1.2] - 2026-09-26
 
 ### Changed
@@ -74,6 +80,7 @@ Upgrading takes a few minutes: see [Upgrading from 1.0.0](README.md#upgrading-fr
 
 Initial release: a remote MCP server with Whoop recovery, sleep, and strain tools, a local SQLite cache, and Railway deployment.
 
+[1.1.3]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.1.3
 [1.1.2]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.1.2
 [1.1.1]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.1.1
 [1.1.0]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.1.0

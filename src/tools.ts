@@ -7,7 +7,7 @@ import type { WhoopSync } from './sync.js';
 import type { PendingAuthStates } from './auth-states.js';
 import { localDate, localTime } from './days.js';
 
-export const SERVER_VERSION = '1.1.2';
+export const SERVER_VERSION = '1.1.3';
 
 export interface ToolDeps {
 	db: WhoopDatabase;
@@ -66,6 +66,9 @@ const DATA_TOOL_BEHAVIOR =
 	" Read-only: it never changes the user's WHOOP data. Before answering, it refreshes the local copy from WHOOP if the last " +
 	'sync is over an hour old; if WHOOP is unreachable, it answers from the last sync and says so. If WHOOP isn\'t connected ' +
 	'yet, it returns a message asking to call get_auth_url.';
+
+/** For tools that take days: how to pick it, which the schema alone can't say. */
+const DAYS_GUIDANCE = ' Set days to match the question: 7 for the last week, 30 for the last month, up to 90.';
 
 const DATA_TOOL_ANNOTATIONS = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true };
 
@@ -146,6 +149,7 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri, mod
 					'are left out. Use it for patterns and comparisons, such as ' +
 					'"how has my HRV changed this month?". For today alone, use get_today; for the sleep behind the numbers, use ' +
 					'get_sleep_analysis.' +
+					DAYS_GUIDANCE +
 					DATA_TOOL_BEHAVIOR,
 				inputSchema: { type: 'object', properties: { days: DAYS_PARAMETER }, required: [] },
 				annotations: DATA_TOOL_ANNOTATIONS,
@@ -159,6 +163,7 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri, mod
 					"and nights WHOOP hasn't scored are left out, and each night counts toward the day the user woke up. Use it for " +
 					"sleep patterns. For last night's stages, use get_today; for the recovery those nights produced, use " +
 					'get_recovery_trends.' +
+					DAYS_GUIDANCE +
 					DATA_TOOL_BEHAVIOR,
 				inputSchema: { type: 'object', properties: { days: DAYS_PARAMETER }, required: [] },
 				annotations: DATA_TOOL_ANNOTATIONS,
@@ -171,6 +176,7 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri, mod
 					'table: WHOOP day strain (0–21, covering all activity that day) and calories burned (kcal), then averages. Days ' +
 					'without a strain score are left out. Use it for overall load and activity trends. For individual ' +
 					'training sessions, use get_workouts; for how the body coped, use get_recovery_trends.' +
+					DAYS_GUIDANCE +
 					DATA_TOOL_BEHAVIOR,
 				inputSchema: { type: 'object', properties: { days: DAYS_PARAMETER }, required: [] },
 				annotations: DATA_TOOL_ANNOTATIONS,
@@ -183,6 +189,7 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri, mod
 					'and start time, activity, duration, strain (or "unscored" when WHOOP hasn\'t scored it), average and max heart rate, time in heart-rate ' +
 					'zones 4–5 and calories, then totals. Use it for questions about specific sessions or training volume; for ' +
 					'whole-day strain including activity outside workouts, use get_strain_history.' +
+					DAYS_GUIDANCE +
 					DATA_TOOL_BEHAVIOR,
 				inputSchema: { type: 'object', properties: { days: DAYS_PARAMETER }, required: [] },
 				annotations: DATA_TOOL_ANNOTATIONS,

@@ -2,7 +2,6 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { ConfigError, loadConfig, type Config } from './config.js';
 import { WhoopClient } from './whoop-client.js';
 import { WhoopDatabase } from './database.js';
-import { WhoopSync } from './sync.js';
 import { PendingAuthStates } from './auth-states.js';
 import { createMcpServer } from './tools.js';
 import { createApp } from './app.js';
@@ -23,27 +22,20 @@ const client = new WhoopClient({
 	clientId: config.clientId,
 	clientSecret: config.clientSecret,
 	redirectUri: config.redirectUri,
-	onTokenRefresh: tokens => db.saveTokens(tokens),
+	store: db.whoopTokens,
 });
-
-const existingTokens = db.getTokens();
-if (existingTokens) {
-	client.setTokens(existingTokens);
-}
-
-const sync = new WhoopSync(client, db);
 const authStates = new PendingAuthStates();
 
 async function main(): Promise<void> {
 	if (config.mode === 'stdio') {
-		const server = createMcpServer({ db, client, sync, authStates, redirectUri: config.redirectUri, mode: 'stdio' });
+		const server = createMcpServer({ client, authStates, redirectUri: config.redirectUri, mode: 'stdio' });
 		const transport = new StdioServerTransport();
 		await server.connect(transport);
 		process.stderr.write('Whoop MCP server running on stdio\n');
 		return;
 	}
 
-	const app = createApp({ config, db, client, sync, authStates });
+	const app = createApp({ config, db, client, authStates });
 	const server = app.listen(config.port, '0.0.0.0', () => {
 		process.stdout.write(`Whoop MCP server running on http://0.0.0.0:${config.port}\n`);
 		process.stdout.write(`Connect Claude to ${new URL('/mcp', config.publicUrl).href}\n`);

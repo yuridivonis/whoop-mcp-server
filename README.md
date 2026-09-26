@@ -3,7 +3,7 @@
 [![CI](https://github.com/yuridivonis/whoop-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/yuridivonis/whoop-mcp-server/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-A Model Context Protocol (MCP) server that connects your Whoop health data to Claude. You host it yourself and add it to Claude.ai as a custom connector. Your data is stored on your own server, Claude signs in with a password you choose, and it receives only the answers to the tools it calls.
+A Model Context Protocol (MCP) server that connects your Whoop health data to Claude. You host it yourself and add it to Claude.ai as a custom connector. The server fetches your data from Whoop when Claude asks and keeps no copy, Claude signs in with a password you choose, and it receives only the answers to the tools it calls.
 
 Built on the [Whoop Developer API v2](https://developer.whoop.com/docs/introduction).
 
@@ -15,7 +15,7 @@ Built on the [Whoop Developer API v2](https://developer.whoop.com/docs/introduct
 - **Sleep**: duration, stages, efficiency, performance, respiratory rate
 - **Strain**: daily strain score and calories burned
 - **Workouts**: activity, local start time, duration, strain, heart rate, calories, and time in heart-rate zones 4–5
-- **Auto-sync**: before answering, the server pulls new data from Whoop if the last sync is more than an hour old, and keeps everything it has synced (at least the last 90 days) for trends
+- **Live data**: every answer is fetched from Whoop when you ask, so it's always current. The server stores only its sign-ins and your encrypted Whoop tokens, never your health data
 - **Private by default**: Claude signs in with a password you choose (OAuth 2.1), so nobody else can read your data
 
 ## MCP Tools
@@ -27,7 +27,6 @@ Built on the [Whoop Developer API v2](https://developer.whoop.com/docs/introduct
 | `get_sleep_analysis` | Sleep trends: time asleep, performance, and efficiency |
 | `get_strain_history` | Daily strain and calorie trends |
 | `get_workouts` | Recent workouts with activity, duration, strain, heart rate, and calories |
-| `sync_data` | Manually trigger a data sync (`full: true` pulls the last 90 days) |
 | `get_auth_url` | Link to connect your Whoop account (works once, expires in 10 minutes) |
 
 ## Setup
@@ -52,7 +51,7 @@ Built on the [Whoop Developer API v2](https://developer.whoop.com/docs/introduct
    - `WHOOP_REDIRECT_URI`: `https://your-app.up.railway.app/callback`
    - `MCP_AUTH_PASSWORD`: the password Claude will ask for when you connect. Generate one with `openssl rand -base64 24` and keep it in your password manager. The server refuses to start without it (at least 16 characters).
    - `ENCRYPTION_SECRET` (optional, recommended): generate one with `openssl rand -base64 32`. It encrypts your stored Whoop tokens, so rotating the Whoop client secret later won't disconnect your account.
-4. Add a volume mounted at `/data`. The database lives there; without a volume, every redeploy loses your data and signs Claude out.
+4. Add a volume mounted at `/data`. It holds the sign-ins and your encrypted Whoop tokens; without it, every redeploy signs Claude out and disconnects Whoop.
 5. Deploy, then open `https://your-app.up.railway.app/health` to check it's running.
 
 ### 3. Connect Claude
@@ -76,7 +75,7 @@ Claude stays signed in across redeploys. Anyone without the password gets `401 U
 ### 4. Connect your Whoop account
 
 1. In a chat, ask Claude to connect Whoop. It calls `get_auth_url` and gives you a link.
-2. Open the link, log in to Whoop, and authorize the app. You're redirected back, and the first 90-day sync starts.
+2. Open the link, log in to Whoop, and authorize the app. You're redirected back, and Claude can answer right away.
 3. Ask away: "How did I sleep last night?"
 
 ## Upgrading from 1.0.0
@@ -88,8 +87,7 @@ Claude stays signed in across redeploys. Anyone without the password gets `401 U
 3. Redeploy.
 4. In Claude.ai → Settings → Connectors, remove the Whoop connector and add it again with the same URL. Claude shows the sign-in page once.
 5. If a tool says your Whoop authorization expired, run `get_auth_url` once to reconnect.
-6. The first sync after the upgrade pulls the last 90 days again. That backfills workouts (1.0.0 never stored them) and the timezone information that dates each day correctly. It runs the next time Claude uses a tool. Asking Claude to run `sync_data` with `full: true` does the same by hand.
-7. Optional: in your Whoop app, untick `read:profile` and `read:body_measurement`. 1.1.0 no longer uses them.
+6. Optional: in your Whoop app, untick `read:profile` and `read:body_measurement`. 1.1.0 no longer uses them.
 
 If your 1.0.0 server worked with Claude on a public URL, assume your data could have been read. As a precaution, rotate your client secret in the Whoop developer dashboard, update `WHOOP_CLIENT_SECRET`, and run `get_auth_url` once afterwards. Unless `ENCRYPTION_SECRET` is set, the stored Whoop tokens were encrypted with the old client secret. The server starts anyway and treats Whoop as disconnected until you reconnect.
 
@@ -98,7 +96,7 @@ If your 1.0.0 server worked with Claude on a public URL, assume your data could 
 - `/mcp` only answers signed-in clients. Sign-in codes and refresh tokens work once and are stored as hashes; if one is ever used twice, the whole sign-in is revoked.
 - Failed sign-ins are limited to 10 per address every 15 minutes, and 50 per hour in total.
 - Sign-in codes only go to Claude, ChatGPT, desktop apps on your own computer, or web clients you add with `MCP_ALLOWED_REDIRECT_HOSTS`. The sign-in page shows where you'll return: only sign in if you started the connection yourself.
-- Whoop tokens are encrypted at rest (AES-256-GCM). Your health data stays in your server's database and is only sent to the client you signed in.
+- Whoop tokens are encrypted at rest (AES-256-GCM). Your health data isn't stored: the server fetches it from Whoop for each question and sends it only to the client you signed in.
 - Changing `MCP_AUTH_PASSWORD` signs every client out.
 - The server asks Whoop only for recovery, cycles, sleep, and workouts.
 
@@ -123,7 +121,7 @@ docker run -d --name whoop-mcp -p 3000:3000 -v whoop-data:/data \
 
 - **On a server with a public https address:** set `WHOOP_REDIRECT_URI` to that address's `/callback`, and connect Claude to its `/mcp`, as with Railway.
 - **On your own computer:** Whoop's login still needs an https address, so point a tunnel at port 3000 (see below) and use the tunnel's `/callback`. Add `-e PUBLIC_URL=http://localhost:3000`, so MCP clients on the same computer connect to `http://localhost:3000/mcp`.
-- **Your data** lives in the `whoop-data` volume, so it survives restarts and upgrades.
+- **The sign-ins and Whoop tokens** live in the `whoop-data` volume, so restarts and upgrades keep you connected.
 
 To check that an image was built by this repository's release workflow, run `gh attestation verify oci://ghcr.io/yuridivonis/whoop-mcp-server:latest --owner yuridivonis`.
 
@@ -177,7 +175,7 @@ Quick tunnels get a new address every time they start, so you'd repeat steps 1 t
 | `ENCRYPTION_SECRET` | Key for encrypting stored Whoop tokens | `WHOOP_CLIENT_SECRET` |
 | `MCP_ALLOWED_REDIRECT_HOSTS` | Extra web clients allowed to receive sign-in codes, as host names separated by commas (e.g. `app.example.com`). Claude, ChatGPT, and desktop apps on your own computer (local addresses, and Cursor, VS Code, and Windsurf links) are always allowed. | None |
 | `TRUST_PROXY` | Proxies allowed to report the client's IP (used by the sign-in rate limits): a hop count, `false`, or addresses/subnets | `1` on Railway, otherwise `false` |
-| `DB_PATH` | SQLite database path | `./whoop.db` |
+| `DB_PATH` | SQLite database path (sign-ins and encrypted Whoop tokens) | `./whoop.db` |
 | `PORT` | HTTP server port | `3000` |
 | `MCP_MODE` | `http` for a server, or `stdio` for an MCP client that starts it as a local command (see [Running on Your Own Computer](#running-on-your-own-computer)) | `http` |
 
@@ -196,19 +194,18 @@ Quick tunnels get a new address every time they start, so you'd repeat steps 1 t
 │                                                 │
 │  ┌─────────────┐      ┌──────────────────┐      │
 │  │ Sign-in     │─────►│  SQLite Database │      │
-│  │ (OAuth 2.1) │      │  - cycles        │      │
-│  └─────────────┘      │  - recovery      │      │
-│  ┌─────────────┐      │  - sleep         │      │
-│  │ MCP tools   │◄────►│  - workouts      │      │
+│  │ (OAuth 2.1) │      │  - sign-ins      │      │
 │  └─────────────┘      │  - Whoop tokens  │      │
-│         │             │  - sign-ins      │      │
-│         ▼             └──────────────────┘      │
-│  ┌─────────────┐               ▲                │
-│  │ Whoop API   │───── sync ────┘                │
-│  │ Client      │                                │
+│  ┌─────────────┐      │    (encrypted)   │      │
+│  │ MCP tools   │      └──────────────────┘      │
+│  └──────┬──────┘               ▲                │
+│         ▼                      │                │
+│  ┌─────────────┐               │                │
+│  │ Whoop API   │─── tokens ────┘                │
+│  │ Client      │   (no health data is stored)   │
 │  └─────────────┘                                │
 └─────────┬───────────────────────────────────────┘
-          │  Whoop OAuth + API v2
+          │  Whoop OAuth + API v2, live on every call
           ▼
 ┌─────────────────────────────────────────────────┐
 │  Whoop API                                      │

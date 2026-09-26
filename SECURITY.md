@@ -35,7 +35,7 @@ Include what you found, how to reproduce it, and what an attacker could do with 
 
 ## If you run a deployment
 
-- **Stay up to date:** keep your fork updated (GitHub's **Sync fork** button), and watch this repository's releases (**Watch → Custom → Releases**) to hear about security fixes.
+- **Stay up to date:** deploy the image rather than a fork. On Railway, turn on auto updates (see [Setup](README.md#2-deploy)); with Docker, run the `:1` tag, which picks up every 1.x release when you pull and restart. If you run a fork, keep it updated with GitHub's **Sync fork** button. Watch this repository's releases (**Watch → Custom → Releases**) to hear about security fixes. Unless `UPDATE_CHECK=false`, `get_today` also mentions a newer version once it's out.
 - **Secrets:** use a long random `MCP_AUTH_PASSWORD` and set `ENCRYPTION_SECRET`.
 - **Signing everyone out:** change `MCP_AUTH_PASSWORD` and redeploy. Every existing sign-in stops working, so your MCP clients will ask you to sign in again. Do this if you think your password may have leaked.
 - **Watching for strangers:** every successful sign-in is logged as `Signed in: client <id>, returning to <destination>, app "<name>"`. Check your server logs for any you don't recognize.

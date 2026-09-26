@@ -69,6 +69,11 @@
           "name": "ENCRYPTION_SECRET",
           "description": "Key for encrypting the stored WHOOP tokens. Defaults to WHOOP_CLIENT_SECRET.",
           "isSecret": true
+        },
+        {
+          "name": "UPDATE_CHECK",
+          "description": "Once a day, ask GitHub for the latest release number and mention a newer version in get_today. Sends nothing about you. Set to false to turn it off.",
+          "default": "true"
         }
       ]
     }

@@ -32,8 +32,9 @@ The database and the server's logs live with whichever provider hosts the server
 
 - **The MCP client you sign in** (for example Claude) receives only the answers to the tools it calls, and only after you allow it. The sign-in page names where your data goes and asks you to tick a box allowing it. That client's provider handles your conversations under its own privacy terms.
 - **To stop sharing:** remove the server from the app, or have the operator change the server password (`MCP_AUTH_PASSWORD`), which signs every app out.
+- **GitHub, for the update check:** once a day, on a timer that starts with the server, it asks GitHub for this project's latest release number, so it can tell you when a newer version is out. The request carries nothing about you or your data, and its timing doesn't follow your use of the tools; GitHub sees only the server's address, as with any web request. A server started fresh for each session (as some apps do in `stdio` mode) asks once per start. The operator can turn it off with `UPDATE_CHECK=false`.
 - **Nothing else:** the server itself doesn't send your data anywhere else, and has no analytics or tracking. If the operator runs it through a tunnel (such as Cloudflare or ngrok), that provider carries the traffic.
-- **Logs:** the server logs sign-ins (the app's name, its client ID, and where it returned) and errors from Whoop. Neither includes your health data.
+- **Logs:** the server logs sign-ins (the app's name, its client ID, and where it returned), errors from Whoop, and a line when a newer version is out. None of them includes your health data.
 
 ## How to delete it
 

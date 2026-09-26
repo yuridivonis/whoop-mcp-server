@@ -24,7 +24,9 @@ export function releaseNotes(changelog, version, previousVersion) {
 		'',
 		'### Upgrading',
 		'',
-		'Sync your fork and redeploy. Anything else this release needs is described above. Coming from 1.0.0? Follow ' +
+		'With the image on Railway, auto updates apply it for you, or set the new version under Service Source. With Docker ' +
+			'and the `:1` tag, pull it again and restart. With a fork, sync it and redeploy. Anything else this release needs is ' +
+			'described above. Coming from 1.0.0? Follow ' +
 			`[Upgrading from 1.0.0](${REPO_URL}#upgrading-from-100) first.`,
 	];
 	if (previousVersion) {

@@ -63,6 +63,29 @@ describe('registry listing (server.json)', () => {
 	});
 });
 
+describe('README', () => {
+	it('tells Railway users to deploy the current version, so auto updates start from it', () => {
+		assert.match(read('README.md'), new RegExp(`enter \`ghcr\\.io/yuridivonis/whoop-mcp-server:${version.replace(/\./g, '\\.')}\``));
+	});
+});
+
+describe('release workflow', () => {
+	const workflow = read('.github/workflows/release.yml');
+
+	it('publishes the image under its version, its major version and latest', () => {
+		assert.match(workflow, /\$\{\{ env\.IMAGE \}\}:\$\{\{ needs\.release\.outputs\.version \}\}/);
+		assert.match(workflow, /format\('\{0\}:\{1\}', env\.IMAGE, needs\.release\.outputs\.major\)/);
+		assert.match(workflow, /format\('\{0\}:latest', env\.IMAGE\)/);
+		assert.match(workflow, /echo "major=\$\{version%%\.\*\}"/);
+	});
+
+	it('moves :latest and the major tag only to the newest release', () => {
+		const moving = workflow.split('\n').filter(line => /:latest|outputs\.major\)/.test(line) && line.includes('format('));
+		assert.equal(moving.length, 2);
+		for (const line of moving) assert.match(line, /needs\.release\.outputs\.newest == 'true' &&/);
+	});
+});
+
 describe('licence check', () => {
 	it('accepts permissive licences and refuses the rest', () => {
 		assert.ok(licenseAllowed('MIT'));

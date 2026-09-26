@@ -3,7 +3,12 @@
   "compilerOptions": {
     "rootDir": "..",
     "noEmit": true,
-    "declaration": false
+    "declaration": false,
+    "allowJs": true
   },
-  "include": ["../src/**/*", "./**/*"]
+  "include": [
+    "../src/**/*",
+    "../scripts/**/*",
+    "./**/*"
+  ]
 }

@@ -88,6 +88,8 @@ Claude stays signed in across redeploys. Anyone without the password gets `401 U
 4. `sync_data` is gone. If your app still lists it, remove the connector and add it again.
 5. If your host keeps backups or snapshots of the volume, delete the ones from before the upgrade. They still hold the old copy.
 
+There's no going back to 1.2.x on the upgraded database: it can't sign apps in with the new sign-in tables.
+
 ## Upgrading from 1.0.0
 
 1.1.0 puts a sign-in in front of `/mcp`. Version 1.0.0 had no authentication there, so any 1.0.0 server that worked with Claude over HTTP served its data to anyone who knew the URL. (Unmodified 1.0.0 also had a request-parsing bug that stopped Claude from connecting over HTTP at all; 1.1.0 fixes both.) To upgrade:
@@ -113,26 +115,25 @@ If your 1.0.0 server worked with Claude on a public URL, assume your data could 
 
 See [SECURITY.md](SECURITY.md) for the full security model and how to report a vulnerability privately, and [PRIVACY.md](PRIVACY.md) for what a deployment stores and shares.
 
-## How this server follows WHOOP's terms
+## WHOOP's terms: what the server does, and what's up to you
 
-When you deploy this server, you register your own Whoop developer app, so you are the developer (the "Company") under WHOOP's [API Terms of Use](https://developer.whoop.com/api-terms-of-use/), effective 6 October 2026. The terms number their sections but not the paragraphs inside them, so this cites each paragraph by its section and heading. It's a summary, not legal advice: read the terms before you deploy.
+When you deploy this server, you register your own Whoop developer app, so you are the developer (the "Company") under WHOOP's [API Terms of Use](https://developer.whoop.com/api-terms-of-use/), effective 6 October 2026. The terms number their sections but not the paragraphs inside them, so this cites each paragraph by its section and heading. It's a summary of the obligations that touch how the server handles data, not legal advice, and not a promise that any deployment complies: read the terms before you deploy.
 
-| WHOOP's terms | What they require | What this server does |
+| WHOOP's terms | What they require | What the server does, and what's up to you |
 |---|---|---|
 | 4. WHOOP Data, *Prohibitions on WHOOP Data* | Explicit opt-in consent before WHOOP data reaches a third party | Every app you connect is a third party. The sign-in page names where the data goes, and doesn't sign the app in until you tick the box allowing it. |
 | 4. WHOOP Data, *Prohibitions on WHOOP Data* | No databases or permanent copies, and no cached copies kept longer than WHOOP's cache headers allow | Nothing is stored. Each answer is fetched from WHOOP when you ask; tools that ask at the same moment share one request, and nothing is kept once it's done. |
-| 4. WHOOP Data, *Prohibitions on WHOOP Data* | No using WHOOP data to create, develop, test, train, fine-tune or improve AI | The server trains nothing, and this project's tests and evaluations use synthetic data only. Check your AI app's settings too: some providers improve their models with your conversations unless you opt out. |
+| 4. WHOOP Data, *Prohibitions on WHOOP Data* | No using WHOOP data to create, develop, test, train, fine-tune or improve AI | The server trains nothing, and this project's tests use synthetic data only. Before you connect an app, turn off any setting that lets its provider use your conversations to improve its models. |
 | 2. Company Applications, *Application Security* | WHOOP data encrypted in transit and at rest; security incidents reported to WHOOP within 48 hours | The server refuses to run on a public address without https, and the only WHOOP data it stores is your encrypted tokens. Reporting an incident is your job: see below. |
 | 1. Use of WHOOP APIs, *Permitted Access* | One set of WHOOP credentials per application | Give each deployment its own Whoop developer app. |
 | 3. Restrictions; Confidentiality, *Confidentiality* | Developer credentials kept confidential, and never embedded in open-source projects | The server reads them from environment variables. Never commit them to your fork. |
-| 3. Restrictions; Confidentiality, *API Prohibitions* | No medical advice | The tools report WHOOP's numbers. They don't give medical advice. |
-| 5. WHOOP Brand, *Use Restrictions* | Nothing that suggests partnership with or endorsement by WHOOP | This project carries no WHOOP logo, and says it isn't affiliated with, endorsed by or sponsored by WHOOP. |
+| 3. Restrictions; Confidentiality, *API Prohibitions* | No medical, legal or other professional advice, and no medical devices | The tools report WHOOP's numbers. They don't give advice or diagnose anything, and neither should anything you build on them. |
 
 ### If you run it for someone else
 
 Each deployment serves one Whoop account. If you deploy it for someone else, they're your end user, and under 2. Company Applications you're responsible for:
 
-- **Consent:** they connect their own Whoop account through Whoop's login, and tick the box for each app themselves (*End User Authorization and Consent*).
+- **Consent:** they connect their own Whoop account through Whoop's login, and tick the box for each app themselves, so they need the server password (`MCP_AUTH_PASSWORD`). Don't tick it for them (*End User Authorization and Consent*).
 - **A privacy policy:** adapt [PRIVACY.md](PRIVACY.md) with your contact details, and link it from your Whoop app (*End User Privacy*).
 - **Support:** give them an easy way to reach you (*End User Authorization and Consent*, *Application Support*).
 - **Security incidents:** if anyone gets unauthorized access to their data, notify WHOOP within 48 hours of discovering it, at security-notifications@whoop.com, and tell them as the law requires (*Application Security*). See [SECURITY.md](SECURITY.md).
@@ -256,7 +257,7 @@ Quick tunnels get a new address every time they start, so you'd repeat steps 1 t
 
 Issues and pull requests are welcome. Before opening a pull request, run `npm test` and `npm run typecheck`; CI runs both, along with a Docker smoke test.
 
-**Synthetic data only.** The tests run against a fake Whoop API that serves made-up records ([test/fake-whoop.ts](test/fake-whoop.ts)), and evaluations will too. Never put real Whoop data, yours or anyone else's, in tests, fixtures, issues or pull requests: WHOOP's terms forbid using it to test AI systems, and it's personal health data.
+**Synthetic data only.** The tests run against a fake Whoop API that serves made-up records ([test/fake-whoop.ts](test/fake-whoop.ts)), and future evaluations will too. Never put real Whoop data, yours or anyone else's, in tests, fixtures, issues or pull requests: WHOOP's terms forbid using it to test AI systems, and it's personal health data.
 
 ## Changelog
 

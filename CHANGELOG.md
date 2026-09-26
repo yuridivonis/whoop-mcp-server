@@ -9,8 +9,8 @@ The server no longer keeps a copy of your WHOOP data, and asks before any app re
 ### Added
 
 - **Consent for each app:** the sign-in page names where your WHOOP data goes ("Allow claude.ai to read your WHOOP recovery, sleep, strain and workouts") and doesn't sign in until you tick the box. Apps signed in with an earlier version are signed out once, and ask again. (#16)
-- **WHOOP's terms:** the README explains how the server follows WHOOP's API Terms of Use, citing each paragraph by its section and heading. It also says what you're responsible for if you run the server for someone else. (#16)
-- **Synthetic data only:** tests and evaluations never use real WHOOP data, and the contributing notes say so. (#16)
+- **WHOOP's terms:** the README maps WHOOP's API Terms of Use to what the server does and what's left to you, citing each paragraph by its section and heading. It also says what you're responsible for if you run the server for someone else. (#16)
+- **Synthetic data only:** the contributing notes say tests never use real WHOOP data, and future evaluations won't either. (#16)
 
 ### Changed
 
@@ -21,7 +21,7 @@ The server no longer keeps a copy of your WHOOP data, and asks before any app re
 
 ### Removed
 
-- **Stored WHOOP data:** the first time this version starts, it deletes the recovery, sleep, strain and workout data earlier versions stored, and rewrites the database file so none of it is left on disk. If the rewrite is interrupted, the next start finishes it. Your WHOOP connection and sign-ins are kept. (#15)
+- **Stored WHOOP data:** the first time this version starts, it deletes the recovery, sleep, strain and workout data earlier versions stored, and rewrites the database file so none of it is left on disk. If the rewrite is interrupted, the next start finishes it. Your WHOOP connection is kept. (#15)
 - **`sync_data`:** there's nothing to sync. Reconnect your MCP client once so it drops the tool from its list. (#15)
 
 ### Fixed
@@ -118,6 +118,7 @@ Upgrading takes a few minutes: see [Upgrading from 1.0.0](README.md#upgrading-fr
 
 Initial release: a remote MCP server with Whoop recovery, sleep, and strain tools, a local SQLite cache, and Railway deployment.
 
+[1.3.0]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.3.0
 [1.2.0]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.2.0
 [1.1.3]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.1.3
 [1.1.2]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.1.2

@@ -93,8 +93,8 @@ export function sendLoginPage(res: Response, { client, params, destination, erro
 	const clientName = client.client_name ? escapeHtml(client.client_name) : 'An MCP client';
 
 	send(res, status, page('Sign in', `  <h1>Sign in to your Whoop MCP Server</h1>
-  <p><strong>${clientName}</strong> is asking to read your Whoop data through this server. After you sign in, you'll return to <strong>${escapeHtml(destination)}</strong>.</p>
-  <div class="notice">Only continue if you started this yourself, just now, by connecting this server in your app. If someone sent you this link, close this page: signing in would give them access to your Whoop data.</div>
+  <p><strong>${clientName}</strong> is asking to read your WHOOP data through this server. After you sign in, you'll return to <strong>${escapeHtml(destination)}</strong>.</p>
+  <div class="notice">Only continue if you started this yourself, just now, by connecting this server in your app. If someone sent you this link, close this page: signing in would give them access to your WHOOP data.</div>
   ${error ? `<div class="error" role="alert">${escapeHtml(error)}</div>` : ''}
   <form method="POST" action="/authorize">
     ${hiddenField('client_id', client.client_id)}

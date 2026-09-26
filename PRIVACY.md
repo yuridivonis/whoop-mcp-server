@@ -2,7 +2,7 @@
 
 This notice describes how a Whoop MCP Server deployment handles your data. Each deployment is run by whoever deployed it (the operator), usually for their own Whoop account, and the operator can link this notice as their Whoop app's privacy policy.
 
-**If you run a deployment for someone else,** you are the developer under WHOOP's API Terms of Use, and this notice has to become yours: add your name and contact details under Contact, and change anything that differs in your setup. The README's [If you run it for someone else](README.md#if-you-run-it-for-someone-else) lists what else you're responsible for.
+**The operator is the developer** under WHOOP's API Terms of Use. If you run a deployment for someone else, this notice has to become yours: add your name and contact details under Contact, and change anything that differs in your setup. The README's [If you run it for someone else](README.md#if-you-run-it-for-someone-else) lists what else you're responsible for.
 
 ## What the server collects
 

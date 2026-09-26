@@ -318,6 +318,27 @@ describe('consent to share WHOOP data', () => {
 		}
 	});
 
+	it('never signs in from a link, even one carrying the password and the tick', async () => {
+		const clientId = await registerClient(server.baseUrl);
+		const params = authorizeParams(clientId, pkcePair().challenge, { password: PASSWORD, consent: 'yes' });
+		const res = await fetch(`${server.baseUrl}/authorize?${params}`, { redirect: 'manual' });
+		assert.equal(res.status, 200);
+		assert.equal(res.headers.get('location'), null);
+		assert.match(await res.text(), /name="consent"/);
+	});
+
+	it('names where the code goes, not what the app calls itself', async () => {
+		const res = await fetch(`${server.baseUrl}/register`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ client_name: 'claude.ai', redirect_uris: [CLIENT_REDIRECT_URI], token_endpoint_auth_method: 'none' }),
+		});
+		const { client_id: clientId } = await res.json() as { client_id: string };
+		const page = await (await fetch(`${server.baseUrl}/authorize?${authorizeParams(clientId, pkcePair().challenge)}`)).text();
+		assert.match(page, /Allow an app on this computer to read your WHOOP/);
+		assert.doesNotMatch(page, /Allow claude\.ai/);
+	});
+
 	it('records when the owner allowed the app', async () => {
 		const clientId = await registerClient(server.baseUrl);
 		const before = Date.now();

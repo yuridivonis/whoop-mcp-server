@@ -41,11 +41,12 @@ export class WhoopDatabase {
 	}
 
 	/**
-	 * Versions before 1.3.0 kept a copy of the WHOOP data. The first start deletes it and
-	 * keeps the WHOOP tokens and sign-ins. Dropping a table only marks its pages free, with
+	 * Versions before 1.3.0 kept a copy of the WHOOP data. The first start deletes it.
+	 * Dropping a table only marks its pages free, with
 	 * their contents intact, so secure_delete zeroes them as part of the drop, and a rewrite
 	 * of the file (VACUUM) then clears any records earlier deletions left in free pages.
 	 * The flag saved with the drop makes every start retry the rewrite until it has run.
+	 * The WHOOP tokens are kept.
 	 */
 	private deleteHealthData(): void {
 		const found = HEALTH_DATA_TABLES.filter(table =>

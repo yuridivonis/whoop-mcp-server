@@ -5,7 +5,7 @@
 [![Latest release](https://img.shields.io/github/v/release/yuridivonis/whoop-mcp-server)](https://github.com/yuridivonis/whoop-mcp-server/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**Your WHOOP data in whichever AI you use, or in your own code.** Self-hosted, private, and built by the book.
+**Your WHOOP data in whichever AI you use, or, soon, in your own code.** Self-hosted, private, and open source.
 
 Ask Claude, ChatGPT or another MCP app "How did I sleep this week?" and get the answer from your own recovery, sleep, strain and workouts. You run the server yourself: it fetches your data from WHOOP when you ask and keeps no copy, and only the apps you've allowed can reach it.
 
@@ -26,7 +26,7 @@ Built on the [Whoop Developer API v2](https://developer.whoop.com/docs/introduct
 - **Workouts**: activity, local start time, duration, strain, heart rate, calories, and time in heart-rate zones 4–5
 - **Live data**: every answer is fetched from Whoop when you ask, so it's always current. The server stores only its sign-ins and your encrypted Whoop tokens, never your health data
 - **Private by default**: each app signs in with a password you choose (OAuth 2.1), and only after you tick a box allowing it, so nobody else can read your data
-- **Any MCP app**: tested live with Claude and ChatGPT; other apps that sign in with OAuth work the same way (see [compatibility](docs/add-to-your-ai.md#compatibility))
+- **Your choice of AI**: tested live with Claude and ChatGPT; other apps that sign in with OAuth should work the same way (see [compatibility](docs/add-to-your-ai.md#compatibility))
 
 ## MCP Tools
 
@@ -60,9 +60,9 @@ Every release is published as a ready-made image, `ghcr.io/yuridivonis/whoop-mcp
    - `WHOOP_CLIENT_ID`: Your Whoop app client ID
    - `WHOOP_CLIENT_SECRET`: Your Whoop app client secret
    - `WHOOP_REDIRECT_URI`: `https://your-app.up.railway.app/callback`
-   - `MCP_AUTH_PASSWORD`: the password Claude will ask for when you connect. Generate one with `openssl rand -base64 24` and keep it in your password manager. The server refuses to start without it (at least 16 characters).
+   - `MCP_AUTH_PASSWORD`: the password each AI app asks for when you connect it. Generate one with `openssl rand -base64 24` and keep it in your password manager. The server refuses to start without it (at least 16 characters).
    - `ENCRYPTION_SECRET` (optional, recommended): generate one with `openssl rand -base64 32`. It encrypts your stored Whoop tokens, so rotating the Whoop client secret later won't disconnect your account.
-3. Add a volume mounted at `/data`. It holds the sign-ins and your encrypted Whoop tokens; without it, every redeploy signs Claude out and disconnects Whoop.
+3. Add a volume mounted at `/data`. It holds the sign-ins and your encrypted Whoop tokens; without it, every redeploy signs your apps out and disconnects Whoop.
 4. Turn on updates: in the service's **Settings**, under **Source**, choose **Configure Auto Updates**, pick **minor updates and patches**, and a maintenance window (for example **Night**). Railway then moves the service to each new 1.x release by itself, and on the Pro plan backs up the volume first.
 5. Deploy, then open `https://your-app.up.railway.app/health` to check it's running.
 
@@ -76,8 +76,8 @@ Add your server's address, `https://your-app.up.railway.app/mcp`, to your AI app
 
 ### 4. Connect your Whoop account
 
-1. In a chat, ask Claude to connect Whoop. It calls `get_auth_url` and gives you a link.
-2. Open the link, log in to Whoop, and authorize the app. You're redirected back, and Claude can answer right away.
+1. In a chat, ask your AI to connect Whoop. It calls `get_auth_url` and gives you a link.
+2. Open the link, log in to Whoop, and authorize the app. You're redirected back, and your AI can answer right away.
 3. Ask away: "How did I sleep last night?"
 
 ## Upgrading to 1.3.0
@@ -155,7 +155,7 @@ docker run -d --name whoop-mcp -p 3000:3000 -v whoop-data:/data \
   ghcr.io/yuridivonis/whoop-mcp-server:1
 ```
 
-- **On a server with a public https address:** set `WHOOP_REDIRECT_URI` to that address's `/callback`, and connect Claude to its `/mcp`, as with Railway.
+- **On a server with a public https address:** set `WHOOP_REDIRECT_URI` to that address's `/callback`, and connect your AI app to its `/mcp`, as with Railway.
 - **On your own computer:** Whoop's login still needs an https address, so point a tunnel at port 3000 (see below) and use the tunnel's `/callback`. Add `-e PUBLIC_URL=http://localhost:3000`, so MCP clients on the same computer connect to `http://localhost:3000/mcp`.
 - **The sign-ins and Whoop tokens** live in the `whoop-data` volume, so restarts and upgrades keep you connected.
 - **Tags:** `:1` always points to the newest 1.x release, so pulling it again (or redeploying) picks up fixes and new features without breaking changes. `:1.3.0` and the like pin one exact version; `:latest` follows every release, including a future 2.0.
@@ -212,7 +212,7 @@ To run your own changes, fork this repository and deploy the fork instead of the
 | `WHOOP_CLIENT_SECRET` | Whoop OAuth client secret | Required |
 | `WHOOP_REDIRECT_URI` | OAuth callback URL | `http://localhost:3000/callback` |
 | `MCP_AUTH_PASSWORD` | Password for the sign-in page that protects `/mcp` (16+ characters) | Required in `http` mode |
-| `PUBLIC_URL` | Public address of the server, if it differs from `WHOOP_REDIRECT_URI`'s. Claude must connect to `PUBLIC_URL/mcp`. | Origin of `WHOOP_REDIRECT_URI` |
+| `PUBLIC_URL` | Public address of the server, if it differs from `WHOOP_REDIRECT_URI`'s. AI apps must connect to `PUBLIC_URL/mcp`. | Origin of `WHOOP_REDIRECT_URI` |
 | `ENCRYPTION_SECRET` | Key for encrypting stored Whoop tokens | `WHOOP_CLIENT_SECRET` |
 | `MCP_ALLOWED_REDIRECT_HOSTS` | Extra web clients allowed to receive sign-in codes, as host names separated by commas (e.g. `app.example.com`). Claude, ChatGPT, and desktop apps on your own computer (local addresses, and Cursor, VS Code, and Windsurf links) are always allowed. | None |
 | `TRUST_PROXY` | Proxies allowed to report the client's IP (used by the sign-in rate limits): a hop count, `false`, or addresses/subnets | `1` on Railway, otherwise `false` |
@@ -225,7 +225,7 @@ To run your own changes, fork this repository and deploy the fork instead of the
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  Claude.ai (custom connector)                   │
+│  Your AI app (Claude, ChatGPT, ...)             │
 │  "How did I sleep last night?"                  │
 └────────────────────────┬────────────────────────┘
                          │  signs in once (OAuth 2.1),

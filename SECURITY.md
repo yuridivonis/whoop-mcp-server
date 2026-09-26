@@ -4,7 +4,8 @@
 
 | Version | Supported |
 |---------|-----------|
-| 1.3.x   | Yes |
+| 1.4.x   | Yes |
+| 1.3.x   | No. Upgrading needs no changes: redeploy, or let Railway's auto updates do it. |
 | 1.1.x to 1.2.x | No. They keep a copy of your Whoop data. Upgrade as described in [Upgrading to 1.3.0](README.md#upgrading-to-130). |
 | 1.0.x   | No. `/mcp` has no authentication. Upgrade as described in [Upgrading from 1.0.0](README.md#upgrading-from-100), then to 1.3.0. |
 
@@ -30,7 +31,7 @@ Include what you found, how to reproduce it, and what an attacker could do with 
 | Threat | Defense |
 |---|---|
 | Someone finds your server's address | `/mcp` answers only signed-in apps, password guesses are rate-limited, and the public `/health` endpoint reveals nothing. |
-| A phishing link to your sign-in page | Codes only go to allowed destinations. The page names where you'll return, warns about links from others, and needs your consent. Every sign-in is logged. |
+| A phishing link to your sign-in page | Codes only go to allowed destinations. The page names where you'll return, warns about links from others, and needs your consent. Every successful sign-in is logged. |
 | A rogue app registers itself | Only apps returning to allowed addresses can register, and an app's chosen name is shown as plain text, never trusted. |
 | A stolen code or token is replayed | Codes and refresh tokens work once. A replay revokes the whole sign-in, and tokens expire. |
 | Someone copies the database file | It holds no health data. WHOOP tokens are encrypted, and sign-in codes and tokens are stored only as hashes. |

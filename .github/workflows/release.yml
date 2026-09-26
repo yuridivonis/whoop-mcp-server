@@ -189,10 +189,12 @@ jobs:
       - name: Skip a version the registry already lists
         id: listed
         run: |
-          if curl -fsS "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.yuridivonis/whoop-mcp-server" \
-            | jq -e --arg version "$VERSION" \
-              '[.servers[] | (.server // .) | select(.name == "io.github.yuridivonis/whoop-mcp-server" and .version == $version)] | length > 0' \
-              >/dev/null; then
+          if ! listing=$(curl -fsS "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.yuridivonis/whoop-mcp-server"); then
+            echo "::warning::Couldn't check the MCP Registry for $VERSION; publishing anyway."
+            echo "listed=false" >> "$GITHUB_OUTPUT"
+          elif printf '%s' "$listing" | jq -e --arg version "$VERSION" \
+            '[.servers[] | (.server // .) | select(.name == "io.github.yuridivonis/whoop-mcp-server" and .version == $version)] | length > 0' \
+            >/dev/null; then
             echo "::notice::The MCP Registry already lists $VERSION, so there's nothing to publish."
             echo "listed=true" >> "$GITHUB_OUTPUT"
           else

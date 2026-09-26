@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [1.4.0] - 2026-09-26
 
-Works with the AI you use, and keeps itself up to date. Nothing to do when upgrading: redeploy, or let Railway's auto updates do it.
+Works with the AI you use, and tells you when an update is out. Nothing to do when upgrading: redeploy, or let Railway's auto updates do it.
 
 ### Added
 
@@ -17,7 +17,7 @@ Works with the AI you use, and keeps itself up to date. Nothing to do when upgra
 
 ### Changed
 
-- **Any AI:** the README, the MCP Registry listing and the image description now say the server works with Claude, ChatGPT or any MCP app, and the README's first screen shows the two ways in: talk to your data, or build with it (the library is coming). (#19)
+- **Your choice of AI:** the README, the MCP Registry listing and the image description now say the server works with Claude, ChatGPT or other MCP apps, and the README's first screen shows the two ways in: talk to your data, or build with it (the library is coming). (#19)
 - **Install from the image, not a fork:** the README now deploys the published image on Railway, with Railway's auto updates moving it to each new 1.x release, and says how to switch an existing fork-based deployment over. Forking is described only as the way to change the code. (#18)
 - **Releases:** republishing a version by hand skips the MCP Registry when it already lists that version, instead of failing, and CI runs on a pinned Ubuntu version. (#19)
 

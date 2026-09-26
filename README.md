@@ -45,7 +45,7 @@ Built on the [Whoop Developer API v2](https://developer.whoop.com/docs/introduct
 
 Every release is published as a ready-made image, `ghcr.io/yuridivonis/whoop-mcp-server`. Deploy that: there's no need to fork this repository unless you want to change the code (see [Changing the code](#changing-the-code)). The steps below use [Railway](https://railway.com); to run it anywhere else, see [Docker](#docker).
 
-1. In a Railway project, click **New**, choose **Docker Image**, and enter `ghcr.io/yuridivonis/whoop-mcp-server:1.3.0`. Then, in the service's **Settings → Networking → Public Networking**, choose **Generate Domain**: that's your server's address, `your-app.up.railway.app` below.
+1. In a Railway project, click **New**, choose **Docker Image**, and enter `ghcr.io/yuridivonis/whoop-mcp-server:1.3.1`. Then, in the service's **Settings → Networking → Public Networking**, choose **Generate Domain**: that's your server's address, `your-app.up.railway.app` below.
 2. Add environment variables:
    - `WHOOP_CLIENT_ID`: Your Whoop app client ID
    - `WHOOP_CLIENT_SECRET`: Your Whoop app client secret
@@ -56,7 +56,7 @@ Every release is published as a ready-made image, `ghcr.io/yuridivonis/whoop-mcp
 4. Turn on updates: in the service's **Settings**, under **Source**, choose **Configure Auto Updates**, pick **minor updates and patches**, and a maintenance window (for example **Night**). Railway then moves the service to each new 1.x release by itself, and on the Pro plan backs up the volume first.
 5. Deploy, then open `https://your-app.up.railway.app/health` to check it's running.
 
-**Already running a fork on Railway?** Switch it to the image: open the service's **Settings**, change **Service Source** to `ghcr.io/yuridivonis/whoop-mcp-server:1.3.0`, and turn on auto updates as in step 4. Keep the same variables and volume, so Whoop stays connected. If your fork is older than 1.3.0, read [Upgrading to 1.3.0](#upgrading-to-130) first: every app signs in once more. Your fork is then no longer used.
+**Already running a fork on Railway?** Switch it to the image: open the service's **Settings**, change **Service Source** to `ghcr.io/yuridivonis/whoop-mcp-server:1.3.1`, and turn on auto updates as in step 4. Keep the same variables and volume, so Whoop stays connected. If your fork is older than 1.3.0, read [Upgrading to 1.3.0](#upgrading-to-130) first: every app signs in once more. Your fork is then no longer used.
 
 ### 3. Connect Claude
 

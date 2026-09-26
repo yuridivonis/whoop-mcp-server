@@ -162,6 +162,12 @@ describe('update check', () => {
 		await new Promise(resolve => setImmediate(resolve));
 		assert.equal(github.requests.length, 2);
 		assert.equal(scheduled.length, 2);
+
+		// The clock was set back, but the timer's day has still passed.
+		clock.now -= 5 * DAY;
+		scheduled[1].fn();
+		await new Promise(resolve => setImmediate(resolve));
+		assert.equal(github.requests.length, 3);
 	});
 
 	it('is on unless UPDATE_CHECK turns it off', () => {

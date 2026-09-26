@@ -64,15 +64,18 @@ export class UpdateChecker {
 		this.schedule = options.schedule ?? ((fn, ms) => setTimeout(fn, ms).unref());
 	}
 
-	/** Checks now, then once a day, until the process exits. */
+	/** Checks now, then a day after each check, until the process exits. */
 	start(): void {
-		void this.check().finally(() => this.schedule(() => this.start(), CHECK_INTERVAL_MS));
+		void this.check(true).finally(() => this.schedule(() => this.start(), CHECK_INTERVAL_MS));
 	}
 
-	/** Asks GitHub for the latest release, unless it was asked in the last day. Never throws. */
-	check(): Promise<void> {
+	/**
+	 * Asks GitHub for the latest release, unless it was asked in the last day. The daily
+	 * timer passes `due`, since its day has passed even if the clock was set back. Never throws.
+	 */
+	check(due = false): Promise<void> {
 		if (this.inFlight) return this.inFlight;
-		if (this.now() - this.checkedAt < CHECK_INTERVAL_MS) return Promise.resolve();
+		if (!due && this.now() - this.checkedAt < CHECK_INTERVAL_MS) return Promise.resolve();
 		this.checkedAt = this.now();
 		this.inFlight = this.fetchLatest().finally(() => {
 			this.inFlight = null;
@@ -97,6 +100,7 @@ export class UpdateChecker {
 				signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
 			});
 			if (!response.ok) return;
+			if (Number(response.headers.get('content-length')) > MAX_RESPONSE_CHARS) return;
 			const text = await response.text();
 			if (text.length > MAX_RESPONSE_CHARS) return;
 			const body = JSON.parse(text) as { tag_name?: unknown };

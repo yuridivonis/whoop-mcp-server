@@ -58,12 +58,12 @@ const SERVER_INSTRUCTIONS =
 	"Answers questions about the user's WHOOP data: recovery, sleep, strain and workouts. Start with get_today for how the " +
 	'user is doing today. For patterns over several days, use get_recovery_trends, get_sleep_analysis, get_strain_history ' +
 	'or get_workouts. Data refreshes from WHOOP automatically when it is over an hour old, so sync_data is rarely needed. ' +
-	"If a tool says WHOOP isn't connected, call get_auth_url and give the user the link. Days are the user's local days, " +
-	'and a night of sleep counts toward the day they woke up. Nothing here changes data in WHOOP.';
+	"If a tool says WHOOP isn't connected, call get_auth_url and pass its answer to the user. Days are the user's local days, " +
+	"and a night of sleep counts toward the day they woke up. Nothing here changes the user's WHOOP data.";
 
 /** Appended to each data tool's description, so an agent knows what calling it involves. */
 const DATA_TOOL_BEHAVIOR =
-	' Read-only: it never changes anything in WHOOP. Before answering, it refreshes the local copy from WHOOP if the last ' +
+	" Read-only: it never changes the user's WHOOP data. Before answering, it refreshes the local copy from WHOOP if the last " +
 	'sync is over an hour old; if WHOOP is unreachable, it answers from the last sync and says so. If WHOOP isn\'t connected ' +
 	'yet, it returns a message asking to call get_auth_url.';
 
@@ -128,9 +128,9 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri, mod
 				name: 'get_today',
 				title: "Today's WHOOP summary",
 				description:
-					"The user's WHOOP status right now, as Markdown: the latest recovery (score %, Green/Yellow/Red zone, HRV in ms, " +
-					"resting heart rate, SpO2, skin temperature), last night's sleep (time asleep, performance, efficiency, light/deep/REM " +
-					"stages, respiratory rate) and today's strain (0–21) with calories and heart rate. Use it first for questions like " +
+					"Returns the user's latest WHOOP status as Markdown: the most recent recovery (score %, Green/Yellow/Red zone, HRV in " +
+					"ms, resting heart rate, SpO2, skin temperature), last night's sleep (time asleep, performance, efficiency, " +
+					"light/deep/REM stages, respiratory rate) and today's strain so far (0–21) with calories and heart rate. Use it first for questions like " +
 					'"how am I today?" or "should I train hard?". For more than one day, use get_recovery_trends, get_sleep_analysis, ' +
 					'get_strain_history or get_workouts.' +
 					DATA_TOOL_BEHAVIOR,
@@ -141,8 +141,9 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri, mod
 				name: 'get_recovery_trends',
 				title: 'Recovery trends',
 				description:
-					'Daily recovery over the last N days, newest first, as a Markdown table: recovery score (%), HRV (ms) and resting ' +
-					'heart rate (bpm) for each of the user\'s local days, then averages. Use it for patterns and comparisons, such as ' +
+					'Returns daily recovery for the last `days` days (default 14), newest first, as a Markdown table: recovery score (%), ' +
+					"HRV (ms) and resting heart rate (bpm) for each of the user's local days, then averages. Days WHOOP hasn't scored " +
+					'are left out. Use it for patterns and comparisons, such as ' +
 					'"how has my HRV changed this month?". For today alone, use get_today; for the sleep behind the numbers, use ' +
 					'get_sleep_analysis.' +
 					DATA_TOOL_BEHAVIOR,
@@ -153,10 +154,11 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri, mod
 				name: 'get_sleep_analysis',
 				title: 'Sleep analysis',
 				description:
-					'Nightly sleep over the last N days, newest first, as a Markdown table: time asleep in hours (light, deep and REM ' +
-					'sleep, not time in bed), sleep performance (%) and efficiency (%), then averages. Naps and nights WHOOP hasn\'t ' +
-					'scored are left out, and each night counts toward the day the user woke up. Use it for sleep patterns; for last ' +
-					"night's stages, use get_today." +
+					'Returns nightly sleep for the last `days` days (default 14), newest first, as a Markdown table: time asleep in ' +
+					'hours (light, deep and REM sleep, not time in bed), sleep performance (%) and efficiency (%), then averages. Naps ' +
+					"and nights WHOOP hasn't scored are left out, and each night counts toward the day the user woke up. Use it for " +
+					"sleep patterns. For last night's stages, use get_today; for the recovery those nights produced, use " +
+					'get_recovery_trends.' +
 					DATA_TOOL_BEHAVIOR,
 				inputSchema: { type: 'object', properties: { days: DAYS_PARAMETER }, required: [] },
 				annotations: DATA_TOOL_ANNOTATIONS,
@@ -165,8 +167,9 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri, mod
 				name: 'get_strain_history',
 				title: 'Strain history',
 				description:
-					'Daily strain over the last N days, newest first, as a Markdown table: WHOOP day strain (0–21, covering all activity ' +
-					'that day) and calories burned (kcal), then averages. Use it for overall load and activity trends. For individual ' +
+					'Returns daily strain for the last `days` days (default 14), including today so far, newest first, as a Markdown ' +
+					'table: WHOOP day strain (0–21, covering all activity that day) and calories burned (kcal), then averages. Days ' +
+					'without a strain score are left out. Use it for overall load and activity trends. For individual ' +
 					'training sessions, use get_workouts; for how the body coped, use get_recovery_trends.' +
 					DATA_TOOL_BEHAVIOR,
 				inputSchema: { type: 'object', properties: { days: DAYS_PARAMETER }, required: [] },
@@ -176,8 +179,8 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri, mod
 				name: 'get_workouts',
 				title: 'Recent workouts',
 				description:
-					'Individual workouts from the last N days, newest first, as a Markdown table: local date and start time, activity, ' +
-					'duration, strain (or "unscored" while WHOOP is still scoring it), average and max heart rate, time in heart-rate ' +
+					'Returns individual workouts from the last `days` days (default 14), newest first, as a Markdown table: local date ' +
+					'and start time, activity, duration, strain (or "unscored" when WHOOP hasn\'t scored it), average and max heart rate, time in heart-rate ' +
 					'zones 4–5 and calories, then totals. Use it for questions about specific sessions or training volume; for ' +
 					'whole-day strain including activity outside workouts, use get_strain_history.' +
 					DATA_TOOL_BEHAVIOR,
@@ -190,9 +193,10 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri, mod
 				description:
 					"Pulls the latest data from WHOOP into the server's local copy and reports how many cycles, recoveries, sleeps " +
 					'and workouts it saved. Rarely needed: the other tools already refresh data that is over an hour old. Call it with ' +
-					'full: true to refresh right away (for example, for a workout that just ended) or to re-download the last 90 days ' +
-					'after reconnecting WHOOP; without full, it only syncs if the last sync was over an hour ago. It only reads from ' +
-					"WHOOP and never deletes anything, so running it again is harmless. If WHOOP isn't connected, it asks for get_auth_url.",
+					'full: true to refresh right away (for example, for a workout that just ended), or to re-download the last 90 days ' +
+					'if the automatic sync after connecting failed; without full, it only syncs if the last sync was over an hour ago. ' +
+					"It never changes the user's WHOOP data or deletes anything, so running it again is harmless. If WHOOP isn't " +
+					'connected, it asks for get_auth_url.',
 				inputSchema: {
 					type: 'object',
 					properties: {
@@ -212,14 +216,14 @@ export function createMcpServer({ db, client, sync, authStates, redirectUri, mod
 				title: 'Connect WHOOP account',
 				description:
 					"Returns a one-time link that connects the user's WHOOP account to this server through WHOOP's own login. Use it " +
-					"when a data tool such as get_today says WHOOP isn't connected, or when the user wants to reconnect or switch " +
-					'accounts. Give the link to the user to open in a browser: it works once and expires in 10 minutes. Once they have ' +
+					"when a data tool such as get_today says WHOOP isn't connected or its authorization expired. Give the link to the " +
+					'user to open in a browser: it works once and expires in 10 minutes. Once they have ' +
 					'logged in, the last 90 days sync automatically and get_today works. ' +
 					"It doesn't read any WHOOP data. A server running in stdio mode can't receive WHOOP's login, so there it returns " +
 					'setup instructions instead.',
 				inputSchema: { type: 'object', properties: {}, required: [] },
-				// Each call issues a new link.
-				annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false },
+				// Nothing changes until the user opens the link.
+				annotations: { readOnlyHint: true, openWorldHint: false },
 			},
 		],
 	}));

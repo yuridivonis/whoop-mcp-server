@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { PendingAuthStates } from '../src/auth-states.js';
-import { createMcpServer } from '../src/tools.js';
+import { createMcpServer, type ToolDeps } from '../src/tools.js';
 import type { WhoopSync } from '../src/sync.js';
 import type { WhoopClient } from '../src/whoop-client.js';
 import type { WhoopCycle, WhoopRecovery, WhoopSleep, WhoopWorkout } from '../src/types.js';
@@ -174,7 +174,7 @@ describe('data tools', () => {
 });
 
 describe('tool definitions', () => {
-	async function connect(t: TestContext): Promise<Client> {
+	async function connect(t: TestContext, deps: Partial<ToolDeps> = {}): Promise<Client> {
 		const server = createMcpServer({
 			db: memoryDb(t),
 			client: {} as WhoopClient,
@@ -182,6 +182,7 @@ describe('tool definitions', () => {
 			authStates: new PendingAuthStates(),
 			redirectUri: 'http://localhost:3000/callback',
 			mode: 'http',
+			...deps,
 		});
 		const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
 		await server.connect(serverSide);
@@ -214,10 +215,30 @@ describe('tool definitions', () => {
 			}
 		}
 
+		for (const name of ['get_today', 'get_recovery_trends', 'get_sleep_analysis', 'get_strain_history', 'get_workouts']) {
+			const description = tools.find(tool => tool.name === name)?.description ?? '';
+			assert.match(description, /over an hour old/, `${name} says when it refreshes from WHOOP`);
+			assert.match(description, /get_auth_url/, `${name} says what to do when WHOOP isn't connected`);
+		}
+
 		const readOnly = tools.filter(tool => tool.annotations?.readOnlyHint).map(tool => tool.name).sort();
 		assert.deepEqual(readOnly, ['get_auth_url', 'get_recovery_trends', 'get_sleep_analysis', 'get_strain_history', 'get_today', 'get_workouts']);
 		const sync = tools.find(tool => tool.name === 'sync_data');
 		assert.equal(sync?.annotations?.destructiveHint, false, 'sync_data writes only its own cache');
+	});
+
+	it('still clamps days on the server, whatever a client sends', async t => {
+		const db = memoryDb(t);
+		db.saveTokens({ access_token: 'whoop-access', refresh_token: 'whoop-refresh', expires_at: Date.now() + HOUR });
+		const client = await connect(t, { db, sync: { smartSync: async () => ({ type: 'skip' }) } as unknown as WhoopSync });
+		const reply = async (days: unknown) => {
+			const result = await client.callTool({ name: 'get_workouts', arguments: { days } });
+			return (result.content as { text: string }[])[0].text;
+		};
+
+		assert.match(await reply(0), /last 14 days/);
+		assert.match(await reply(91), /last 90 days/);
+		assert.match(await reply('7'), /last 7 days/);
 	});
 
 	it('tells clients how the tools fit together when they connect', async t => {

@@ -97,7 +97,7 @@ describe('documentation links', () => {
 describe('README', () => {
 	it('tells Railway users to deploy the current version, so auto updates start from it', () => {
 		const readme = read('README.md');
-		assert.match(readme, new RegExp(`enter \`ghcr\\.io/yuridivonis/whoop-mcp-server:${version.replace(/\./g, '\\.')}\``));
+		assert.ok(readme.includes(`enter \`ghcr.io/yuridivonis/whoop-mcp-server:${version}\``), 'step 1 names the current version');
 		const pinned = [...readme.matchAll(/ghcr\.io\/yuridivonis\/whoop-mcp-server:(\d+\.\d+\.\d+)/g)].map(match => match[1]);
 		assert.ok(pinned.length >= 2);
 		assert.deepEqual([...new Set(pinned)], [version], 'every pinned image is the current version');

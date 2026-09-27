@@ -1,7 +1,8 @@
 # Keeps pinned dependencies current. Each new version waits out a cooldown first (a hijacked
 # release is usually pulled within days), and updates are grouped into weekly PRs. Security
 # updates for known vulnerabilities (turned on in the repository's settings) come separately,
-# as soon as they're available.
+# as soon as they're available. The ignore rules below don't hold them back, even when the
+# only fix is a new major version.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -18,6 +19,18 @@ updates:
       npm-minor-and-patch:
         update-types: [minor, patch]
     open-pull-requests-limit: 5
+    ignore:
+      # Node's types stay on the major of the oldest Node the server supports ("engines" in
+      # package.json), so they can't offer APIs that Node lacks. This holds whatever major is
+      # installed: when "engines" moves up, bump @types/node by hand in the same PR.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # Major versions with breaking changes, each moved to deliberately in a PR of its own.
+      # That PR removes its line here, or Dependabot opens a duplicate bump the next Monday.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+      - dependency-name: express
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /

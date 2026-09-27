@@ -8,7 +8,6 @@ interface LoginPageOptions {
 	/** Where the owner returns after signing in, from describeRedirect(). */
 	destination: string;
 	error?: string;
-	status?: number;
 }
 
 function escapeHtml(value: string): string {
@@ -26,7 +25,9 @@ function escapeHtml(value: string): string {
  * or push the warning off the screen.
  */
 export function cleanName(value: string): string {
-	return value.replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]/g, ' ').slice(0, 80);
+	// 80 code points, so a character outside the basic plane (an emoji, say) is never split
+	// into an invalid half.
+	return Array.from(value.replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]/g, ' ')).slice(0, 80).join('');
 }
 
 function hiddenField(name: string, value: string | undefined): string {
@@ -141,11 +142,16 @@ export function consentText(destination: string): string {
  * WHOOP's terms require explicit opt-in consent before WHOOP data reaches a third party,
  * and the app is one. So the owner has to tick a box naming where the data goes.
  */
-export function sendLoginPage(res: Response, { client, params, destination, error, status = 200 }: LoginPageOptions): void {
+export function sendLoginPage(res: Response, options: LoginPageOptions & { status?: number }): void {
+	send(res, options.status ?? 200, renderLoginPage(options));
+}
+
+/** The sign-in page's HTML. Everything an app or a link controls is escaped. */
+export function renderLoginPage({ client, params, destination, error }: LoginPageOptions): string {
 	const clientName = client.client_name ? escapeHtml(cleanName(client.client_name)) : 'An app';
 	const where = escapeHtml(destination);
 
-	send(res, status, page('Sign in', `  <h1>Connect ${where} to your WHOOP data</h1>
+	return page('Sign in', `  <h1>Connect ${where} to your WHOOP data</h1>
   <p class="lede"><strong><bdi>${clientName}</bdi></strong> is asking to connect to your server. After you sign in, you'll return to <strong>${where}</strong>.</p>
   <ul class="reads" aria-label="What it can read"><li>Recovery</li><li>Sleep</li><li>Strain</li><li>Workouts</li></ul>
   <p class="readonly">${ICONS.eye}Read-only: nothing on WHOOP is changed, and the server keeps no copy.</p>
@@ -172,7 +178,7 @@ export function sendLoginPage(res: Response, { client, params, destination, erro
   <footer>
     <p>To stop sharing, remove this server from the app, or change the server password to sign every app out.</p>
     <p>Open-source project, not affiliated with WHOOP.</p>
-  </footer>`));
+  </footer>`);
 }
 
 /** Shown instead of the sign-in form when a sign-in can't be allowed. */

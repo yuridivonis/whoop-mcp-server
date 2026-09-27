@@ -43,7 +43,8 @@ export function decrypt(encryptedData: string): string {
 	const key = getEncryptionKey();
 	const [ivHex, authTagHex, encrypted] = encryptedData.split(':');
 
-	if (!ivHex || !authTagHex || !encrypted) {
+	// An empty plaintext has an empty ciphertext, so only a missing part is malformed.
+	if (!ivHex || !authTagHex || encrypted === undefined) {
 		throw new Error('Invalid encrypted data format');
 	}
 

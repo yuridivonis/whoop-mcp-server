@@ -122,6 +122,27 @@ describe('release workflow', () => {
 		}
 	});
 
+	it('runs as the last job of CI on main, once every other job has passed', () => {
+		const ci = read('.github/workflows/ci.yml');
+		const jobs = ci.slice(ci.indexOf('\njobs:\n'));
+		const names = [...jobs.matchAll(/^  ([a-z-]+):$/gm)].map(match => match[1]);
+		const caller = jobs.slice(jobs.indexOf('\n  release:\n'));
+		assert.match(caller, /uses: \.\/\.github\/workflows\/release\.yml/);
+		assert.deepEqual(caller.match(/needs: \[([^\]]+)\]/)?.[1].split(', ').sort(), names.filter(name => name !== 'release').sort());
+		assert.match(caller, /if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'.* && needs\.pending\.outputs\.release == 'true'$/m,
+			'only a push with something to release queues for it');
+		assert.match(caller, /group: release\n\s+cancel-in-progress: false/, 'releases queue, never cancel');
+		const pending = jobs.slice(jobs.indexOf('\n  pending:\n'), jobs.indexOf('\n  release:\n'));
+		assert.match(pending, /if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'/);
+		for (const lookup of [pending, workflow]) {
+			assert.match(lookup, /grep -q 'HTTP 404'/, 'only "not found" means there is no release');
+		}
+		assert.match(workflow, /^  workflow_call:$/m);
+		assert.doesNotMatch(workflow, /workflow_run|pull_request_target/, 'no trigger that runs with write access on untrusted code');
+		// A manual run shares the caller's group; a called run must not, or it would wait on its caller.
+		assert.match(workflow, /^concurrency:\n  group: \$\{\{ github\.event_name == 'workflow_dispatch' && 'release' \|\| format\('release-\{0\}', github\.run_id\) \}\}\n  cancel-in-progress: false$/m);
+	});
+
 	it('moves :latest and the major tag only to the newest release', () => {
 		const moving = workflow.split('\n').filter(line => /:latest|outputs\.major\)/.test(line) && line.includes('format('));
 		assert.equal(moving.length, 2);

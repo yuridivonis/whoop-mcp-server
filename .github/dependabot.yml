@@ -1,0 +1,49 @@
+# Keeps pinned dependencies current. Each new version waits out a cooldown first (a hijacked
+# release is usually pulled within days), and updates are grouped into weekly PRs. Security
+# updates for known vulnerabilities (turned on in the repository's settings) come separately,
+# as soon as they're available.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Singapore
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Singapore
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # The base image is pinned by digest; Dependabot moves the digest when node:24-slim is
+  # rebuilt. The image stays on Node 24 (LTS): moving to a new major line is a deliberate
+  # change, not a weekly update.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Singapore
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]

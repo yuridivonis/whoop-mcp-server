@@ -1,6 +1,6 @@
 {
   "name": "whoop-mcp-server",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "private": true,
   "description": "Your WHOOP recovery, sleep, strain and workouts in Claude, ChatGPT or other MCP apps. Self-hosted.",
   "author": "Yuri Dvoinos",
@@ -40,6 +40,7 @@
     "@types/better-sqlite3": "^9.6.0",
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.1",
+    "fast-check": "^4.10.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   },

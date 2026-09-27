@@ -1,7 +1,7 @@
 name: Release
 
-# Merging is releasing. When CI passes on main and package.json has a version that isn't
-# tagged yet, this:
+# Merging is releasing. CI calls this as its last job on every push to main, once all its
+# checks have passed. When package.json has a version that isn't tagged yet, this:
 #   1. tags that commit and publishes the GitHub release, with notes from CHANGELOG.md;
 #   2. builds the Docker image for amd64 and arm64, pushes it to ghcr.io as :<version>,
 #      :<major> (e.g. :1, so a redeploy picks up updates without breaking changes) and
@@ -9,17 +9,28 @@ name: Release
 #   3. publishes server.json to the official MCP Registry.
 # Merges that don't change the version release nothing.
 #
-# If step 2 or 3 fails, use "Re-run failed jobs" on the run. If the fix needed a new commit,
-# run this workflow by hand (Actions → Release → Run workflow) with the version: it
-# republishes the image and listing from that version's tag.
+# If a step fails, use "Re-run failed jobs" on the CI run. A version that was tagged but
+# has no GitHub release yet is finished from its tag, by a re-run or by any later push to
+# main that still carries that version. If the release exists, a later step failed and the
+# fix needed a new commit, run this workflow by hand (Actions → Release → Run workflow)
+# with the version: it republishes the image and listing from that version's tag, using
+# the workflow on main.
+#
+# While package.json carries a version, CI keeps it released: delete its GitHub release
+# and the next push to main recreates it, from the tag's commit, or from that push's commit
+# if the tag is gone too. To withdraw a version, release a newer one. Published images and
+# the registry listing stay either way.
+#
+# A republish rebuilds the image, so the version's tag moves to a new digest (attested like
+# the first). CI's releases are jobs in CI's runs; only manual runs appear as runs of this
+# file, which is what Scorecard's Packaging check looks for.
 #
 # The first image push creates the ghcr.io package, which GitHub may make private. The
 # registry can only verify public images, so step 3 checks first and says how to fix it.
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [main]
+  # From CI's last job (ci.yml), after every other job has passed. A called workflow sees the
+  # caller's context: the push to main and the commit CI tested.
+  workflow_call:
   workflow_dispatch:
     inputs:
       version:
@@ -28,8 +39,16 @@ on:
 
 permissions: {}
 
+# One release at a time. From CI, the calling job in ci.yml holds the "release" group, and
+# only for a push with something to release. The called workflow takes a group of its own,
+# since waiting on its caller's group would deadlock. A manual run takes "release" itself,
+# so it and a CI release never overlap: one waits for the other. GitHub keeps only one
+# waiting, though: a third release or republish cancels the one waiting. Later pushes
+# never release a cancelled run's version, so re-run that CI run: it tags its commit and
+# releases it, leaving :latest and the major tag on the newer version.
 concurrency:
-  group: release
+  group: ${{ github.event_name == 'workflow_dispatch' && 'release' || format('release-{0}', github.run_id) }}
+  cancel-in-progress: false
 
 env:
   IMAGE: ghcr.io/yuridivonis/whoop-mcp-server
@@ -37,15 +56,12 @@ env:
 jobs:
   release:
     name: GitHub release
-    # This repository only, never forks. From CI: only runs for pushes to main, never pull
-    # requests (a fork's branch can also be called main). By hand: anyone who can run
-    # workflows here.
+    # This repository only, never forks. From CI: only pushes to main, never pull requests.
+    # By hand: anyone who can run workflows here.
     if: >-
       github.repository == 'yuridivonis/whoop-mcp-server' && (
         github.event_name == 'workflow_dispatch' || (
-          github.event.workflow_run.conclusion == 'success' &&
-          github.event.workflow_run.event == 'push' &&
-          github.event.workflow_run.head_repository.full_name == github.repository
+          github.event_name == 'push' && github.ref == 'refs/heads/main'
         )
       )
     runs-on: ubuntu-24.04
@@ -60,7 +76,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -71,7 +87,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
-          SHA: ${{ github.event.workflow_run.head_sha }}
+          SHA: ${{ github.sha }}
           REQUESTED: ${{ inputs.version }}
         run: |
           if [ "$EVENT" = workflow_dispatch ]; then
@@ -92,22 +108,32 @@ jobs:
           fi
 
           version=$(node -p "require('./package.json').version")
-          { echo "version=$version"; echo "major=${version%%.*}"; echo "sha=$SHA"; } >> "$GITHUB_OUTPUT"
+          { echo "version=$version"; echo "major=${version%%.*}"; } >> "$GITHUB_OUTPUT"
           if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
-            echo "v$version is already released; nothing to do."
-            echo "released=false" >> "$GITHUB_OUTPUT"
-            exit 0
+            # Only "not found" means there's no release: any other failure stops here.
+            if out=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v$version" 2>&1); then
+              echo "v$version is already released; nothing to do."
+              echo "released=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            elif ! printf '%s' "$out" | grep -q 'HTTP 404'; then
+              printf '%s\n' "$out" >&2
+              exit 1
+            fi
+            # A run that pushed the tag and then failed: finish that release, from its tag.
+            SHA=$(git rev-list -n 1 "refs/tags/v$version")
+            echo "v$version is tagged but has no GitHub release; finishing it from $SHA."
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git tag -a "v$version" "$SHA" -m "whoop-mcp-server $version"
+            git push origin "v$version"
           fi
-          previous=$(git tag --list 'v*' --sort=-v:refname | head -1 | sed 's/^v//')
+          previous=$(git tag --list 'v*' --sort=-v:refname | grep -vxF "v$version" | head -1 | sed 's/^v//')
           node scripts/release-notes.mjs "$version" "$previous" > notes.md
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git tag -a "v$version" "$SHA" -m "whoop-mcp-server $version"
-          git push origin "v$version"
-          gh release create "v$version" --verify-tag --latest --title "v$version" --notes-file notes.md
           newest=false
           if [ "$(git tag --list 'v*' --sort=-v:refname | head -1)" = "v$version" ]; then newest=true; fi
-          { echo "newest=$newest"; echo "released=true"; } >> "$GITHUB_OUTPUT"
+          gh release create "v$version" --verify-tag --latest="$newest" --title "v$version" --notes-file notes.md
+          { echo "sha=$SHA"; echo "newest=$newest"; echo "released=true"; } >> "$GITHUB_OUTPUT"
 
   image:
     name: Docker image

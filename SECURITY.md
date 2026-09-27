@@ -36,7 +36,7 @@ Include what you found, how to reproduce it, and what an attacker could do with 
 | A stolen code or token is replayed | Codes and refresh tokens work once. A replay revokes the whole sign-in, and tokens expire. |
 | Someone copies the database file | It holds no health data. WHOOP tokens are encrypted, and sign-in codes and tokens are stored only as hashes. |
 | Someone listens on the network | Public addresses must use https. |
-| Tampered code or images | Every GitHub Action is pinned to a commit, and release images carry signed build provenance (`gh attestation verify`). CI audits dependencies and their licences, and [OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/yuridivonis/whoop-mcp-server) rates the repository's practices every week. |
+| Tampered code or images | Every GitHub Action is pinned to a commit, the Docker base image to a digest, and release images carry signed build provenance (`gh attestation verify`). CI audits dependencies and their licences, CodeQL scans the code and workflows, Dependabot proposes updates, and [OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/yuridivonis/whoop-mcp-server) rates the repository's practices every week. |
 
 **What it can't defend against:**
 - **Anyone with the server password,** or control of the machine or hosting account it runs on.
@@ -57,7 +57,7 @@ Include what you found, how to reproduce it, and what an attacker could do with 
 - **Least data:** the server asks Whoop only for recovery, cycles, sleep, and workouts.
 - **Stored Whoop tokens:** encrypted with AES-256-GCM, using a key derived from `ENCRYPTION_SECRET` (or `WHOOP_CLIENT_SECRET` if that isn't set).
 - **Public endpoints:** `/health` only reports that the server is up, and says nothing about your data or your Whoop connection.
-- **Supply chain:** actions are pinned to commits, release images are attested, and CI checks dependencies for known vulnerabilities and non-permissive licences. The README's OpenSSF Scorecard badge shows the current rating.
+- **Supply chain:** actions are pinned to commits and the base image to a digest, release images are attested, and CI checks dependencies for known vulnerabilities and non-permissive licences. CodeQL scans every pull request, and Dependabot proposes updates weekly. The README's OpenSSF Scorecard badge shows the current rating.
 
 ## If you run a deployment
 

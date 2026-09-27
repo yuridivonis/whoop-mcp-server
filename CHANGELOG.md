@@ -4,11 +4,11 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [1.4.1] - 2026-09-27
 
-More checks on the code and on how releases are built, and two small fixes. Nothing to do when upgrading: redeploy, or let Railway's auto updates do it.
+More checks on the code and on how releases are built, and three small fixes. Nothing to do when upgrading: redeploy, or let Railway's auto updates do it.
 
 ### Changed
 
-- **Releases run inside CI:** merging a new version releases it from CI's last job, once every check has passed, instead of from a separate workflow that CI's result started. The release itself hasn't changed. (#20)
+- **Releases run inside CI:** merging a new version releases it from CI's last job, once every check has passed, instead of from a separate workflow that CI's result started. A manual republish waits for a release in progress, and the other way round. (#20)
 - **A pinned base image:** the Docker image builds on one exact `node:24-slim` image, fixed by its digest, so the same code always builds on the same base. (#20)
 - **Dependabot:** every week, it proposes updates to npm packages, GitHub Actions and the base image as pull requests, waiting a week after each new release first. (#20)
 - **CodeQL:** every pull request, and a weekly scan, checks the code and the workflows for security problems. (#20)
@@ -16,7 +16,8 @@ More checks on the code and on how releases are built, and two small fixes. Noth
 
 ### Fixed
 
-- **Long app names:** cutting an app name at 80 characters could split an emoji in half, leaving a broken character on the sign-in page and in the log. Names are now cut between characters. (#20)
+- **Long app names:** cutting an app name at 80 characters could split an emoji into an invalid half, shown as � on the sign-in page. Names are now cut between whole Unicode code points. (#20)
+- **Releases:** if a release failed just after tagging, re-running it said the version was already released and published nothing. It now finishes the release from the tag. (#20)
 - **Encryption:** an encrypted empty value couldn't be decrypted. The server only encrypts WHOOP tokens, which are never empty, so this shouldn't have affected anyone. (#20)
 
 ## [1.4.0] - 2026-09-26

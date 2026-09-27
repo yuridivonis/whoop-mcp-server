@@ -133,7 +133,8 @@ describe('release workflow', () => {
 		assert.match(caller, /group: release\n\s+cancel-in-progress: false/, 'releases queue, never cancel');
 		assert.match(workflow, /^  workflow_call:$/m);
 		assert.doesNotMatch(workflow, /workflow_run|pull_request_target/, 'no trigger that runs with write access on untrusted code');
-		assert.doesNotMatch(workflow, /^concurrency:/m, "the caller's group would deadlock with its own");
+		// A manual run shares the caller's group; a called run must not, or it would wait on its caller.
+		assert.match(workflow, /^concurrency:\n  group: \$\{\{ github\.event_name == 'workflow_dispatch' && 'release' \|\| format\('release-\{0\}', github\.run_id\) \}\}\n  cancel-in-progress: false$/m);
 	});
 
 	it('moves :latest and the major tag only to the newest release', () => {

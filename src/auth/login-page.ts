@@ -21,11 +21,12 @@ function escapeHtml(value: string): string {
 
 /**
  * An app-chosen name, made safe to show: control and bidirectional-text characters
- * removed and the length capped at 80 characters, so a name can't add lines, reorder the text around it,
+ * removed and the length capped, so a name can't add lines, reorder the text around it,
  * or push the warning off the screen.
  */
 export function cleanName(value: string): string {
-	// Cut by code point, so a character outside the basic plane (an emoji, say) is never split in half.
+	// 80 code points, so a character outside the basic plane (an emoji, say) is never split
+	// into an invalid half.
 	return Array.from(value.replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]/g, ' ')).slice(0, 80).join('');
 }
 

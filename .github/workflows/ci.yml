@@ -114,6 +114,7 @@ jobs:
       packages: write
       id-token: write
       attestations: write
+    # Releases never cancel each other; see the concurrency notes in release.yml.
     concurrency:
       group: release
       cancel-in-progress: false

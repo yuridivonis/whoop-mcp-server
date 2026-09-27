@@ -1,6 +1,7 @@
 # Keeps pinned dependencies current. Each new version waits out a cooldown first (a hijacked
 # release is usually pulled within days), and updates are grouped into weekly PRs. Security
-# updates for known vulnerabilities come separately, as soon as they're available.
+# updates for known vulnerabilities (turned on in the repository's settings) come separately,
+# as soon as they're available.
 version: 2
 updates:
   - package-ecosystem: npm

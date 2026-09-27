@@ -9,15 +9,15 @@ name: Release
 #   3. publishes server.json to the official MCP Registry.
 # Merges that don't change the version release nothing.
 #
-# If step 2 or 3 fails, use "Re-run failed jobs" on the CI run. If the fix needed a new
-# commit, run this workflow by hand (Actions → Release → Run workflow) with the version: it
-# republishes the image and listing from that version's tag, using the workflow on main. A
-# fix merged after the tag exists releases nothing by itself, so it always needs that step.
+# If a step fails, use "Re-run failed jobs" on the CI run. A version that was tagged but
+# has no GitHub release yet is finished from its tag. If the fix needed a new commit, run
+# this workflow by hand (Actions → Release → Run workflow) with the version: it republishes
+# the image and listing from that version's tag, using the workflow on main. A fix merged
+# after the tag exists releases nothing by itself, so it always needs that step.
 #
-# Don't start a manual run while a CI release is running: the two aren't queued behind each
-# other, and the older one could move :latest or :1 back. Manual runs also keep Scorecard's
-# Packaging check seeing this file in use, so republish the latest version at least once a
-# year.
+# A republish rebuilds the image, so the version's tag moves to a new digest (attested like
+# the first). CI's releases are jobs in CI's runs; only manual runs appear as runs of this
+# file, which is what Scorecard's Packaging check looks for.
 #
 # The first image push creates the ghcr.io package, which GitHub may make private. The
 # registry can only verify public images, so step 3 checks first and says how to fix it.
@@ -33,8 +33,14 @@ on:
 
 permissions: {}
 
-# CI releases are queued one at a time by the job in ci.yml that calls this. Don't add the
-# same group here: GitHub sees the called workflow waiting on its own caller and cancels it.
+# One release at a time. From CI, the calling job in ci.yml holds the "release" group; the
+# called workflow takes a group of its own, since waiting on its caller's group would
+# deadlock. A manual run takes "release" itself, so it and a CI release never overlap: one
+# waits for the other. GitHub keeps only one waiting, though. A third arrival cancels the
+# one waiting, so don't merge a version bump while two releases are already in line.
+concurrency:
+  group: ${{ github.event_name == 'workflow_dispatch' && 'release' || format('release-{0}', github.run_id) }}
+  cancel-in-progress: false
 
 env:
   IMAGE: ghcr.io/yuridivonis/whoop-mcp-server
@@ -94,22 +100,28 @@ jobs:
           fi
 
           version=$(node -p "require('./package.json').version")
-          { echo "version=$version"; echo "major=${version%%.*}"; echo "sha=$SHA"; } >> "$GITHUB_OUTPUT"
+          { echo "version=$version"; echo "major=${version%%.*}"; } >> "$GITHUB_OUTPUT"
           if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
-            echo "v$version is already released; nothing to do."
-            echo "released=false" >> "$GITHUB_OUTPUT"
-            exit 0
+            if gh release view "v$version" >/dev/null; then
+              echo "v$version is already released; nothing to do."
+              echo "released=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            # A run that pushed the tag and then failed: finish that release, from its tag.
+            SHA=$(git rev-list -n 1 "refs/tags/v$version")
+            echo "v$version is tagged but has no GitHub release; finishing it from $SHA."
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git tag -a "v$version" "$SHA" -m "whoop-mcp-server $version"
+            git push origin "v$version"
           fi
-          previous=$(git tag --list 'v*' --sort=-v:refname | head -1 | sed 's/^v//')
+          previous=$(git tag --list 'v*' --sort=-v:refname | grep -vxF "v$version" | head -1 | sed 's/^v//')
           node scripts/release-notes.mjs "$version" "$previous" > notes.md
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git tag -a "v$version" "$SHA" -m "whoop-mcp-server $version"
-          git push origin "v$version"
-          gh release create "v$version" --verify-tag --latest --title "v$version" --notes-file notes.md
           newest=false
           if [ "$(git tag --list 'v*' --sort=-v:refname | head -1)" = "v$version" ]; then newest=true; fi
-          { echo "newest=$newest"; echo "released=true"; } >> "$GITHUB_OUTPUT"
+          gh release create "v$version" --verify-tag --latest="$newest" --title "v$version" --notes-file notes.md
+          { echo "sha=$SHA"; echo "newest=$newest"; echo "released=true"; } >> "$GITHUB_OUTPUT"
 
   image:
     name: Docker image

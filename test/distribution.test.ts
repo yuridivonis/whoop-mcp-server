@@ -132,6 +132,11 @@ describe('release workflow', () => {
 		assert.match(caller, /if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'.* && needs\.pending\.outputs\.release == 'true'$/m,
 			'only a push with something to release queues for it');
 		assert.match(caller, /group: release\n\s+cancel-in-progress: false/, 'releases queue, never cancel');
+		const pending = jobs.slice(jobs.indexOf('\n  pending:\n'), jobs.indexOf('\n  release:\n'));
+		assert.match(pending, /if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'/);
+		for (const lookup of [pending, workflow]) {
+			assert.match(lookup, /grep -q 'HTTP 404'/, 'only "not found" means there is no release');
+		}
 		assert.match(workflow, /^  workflow_call:$/m);
 		assert.doesNotMatch(workflow, /workflow_run|pull_request_target/, 'no trigger that runs with write access on untrusted code');
 		// A manual run shares the caller's group; a called run must not, or it would wait on its caller.

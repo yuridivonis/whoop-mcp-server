@@ -10,12 +10,16 @@ name: Release
 # Merges that don't change the version release nothing.
 #
 # If a step fails, use "Re-run failed jobs" on the CI run. A version that was tagged but
-# has no GitHub release yet is finished from its tag, by a re-run or by the next push to
-# main. That includes a tag pushed by hand, or one whose release was deleted: to withdraw a
-# version, delete its tag as well. If the release exists, a later step failed and the fix
-# needed a new commit, run this workflow by hand (Actions → Release → Run workflow) with
-# the version: it republishes the image and listing from that version's tag, using the
-# workflow on main.
+# has no GitHub release yet is finished from its tag, by a re-run or by any later push to
+# main that still carries that version. If the release exists, a later step failed and the
+# fix needed a new commit, run this workflow by hand (Actions → Release → Run workflow)
+# with the version: it republishes the image and listing from that version's tag, using
+# the workflow on main.
+#
+# While package.json carries a version, CI keeps it released: delete its GitHub release
+# and the next push to main recreates it, from the tag's commit, or from that push's commit
+# if the tag is gone too. To withdraw a version, release a newer one. Published images and
+# the registry listing stay either way.
 #
 # A republish rebuilds the image, so the version's tag moves to a new digest (attested like
 # the first). CI's releases are jobs in CI's runs; only manual runs appear as runs of this
@@ -39,7 +43,9 @@ permissions: {}
 # only for a push with something to release. The called workflow takes a group of its own,
 # since waiting on its caller's group would deadlock. A manual run takes "release" itself,
 # so it and a CI release never overlap: one waits for the other. GitHub keeps only one
-# waiting, though: a third release or republish cancels the one waiting.
+# waiting, though: a third release or republish cancels the one waiting. Later pushes
+# never release a cancelled run's version, so re-run that CI run: it tags its commit and
+# releases it, leaving :latest and the major tag on the newer version.
 concurrency:
   group: ${{ github.event_name == 'workflow_dispatch' && 'release' || format('release-{0}', github.run_id) }}
   cancel-in-progress: false

@@ -101,12 +101,15 @@ jobs:
         if: failure()
         run: docker logs server
 
-  # Whether the version in package.json still needs releasing. Only then does the release
-  # below queue, so a merge that changes no version can't take a waiting release's place.
+  # Whether the version in package.json still has no GitHub release. Only then does the
+  # release below queue, so a merge whose version is already released can't cancel a
+  # release or republish waiting in line. Asked after the checks, just before queueing.
   pending:
     name: Anything to release
+    needs: [test, audit, listing, docker]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'yuridivonis/whoop-mcp-server'
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     outputs:
       release: ${{ steps.check.outputs.release }}
     steps:

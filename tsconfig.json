@@ -13,5 +13,6 @@
     "resolveJsonModule": true
   },
   "include": ["src/**/*"],
+  "references": [{ "path": "packages/whoop-client" }],
   "exclude": ["node_modules", "dist"]
 }

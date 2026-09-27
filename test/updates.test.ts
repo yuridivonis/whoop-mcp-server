@@ -6,8 +6,8 @@ import { PendingAuthStates } from '../src/auth-states.js';
 import { loadConfig } from '../src/config.js';
 import { createMcpServer } from '../src/tools.js';
 import { UpdateChecker, isNewer } from '../src/updates.js';
-import { WhoopClient } from '../src/whoop-client.js';
-import { FakeWhoop } from './fake-whoop.js';
+import { WhoopClient } from '@yuridivonis/whoop-client';
+import { FakeWhoop } from '../packages/whoop-client/test/fake-whoop.js';
 import { memoryDb } from './helpers.js';
 
 const DAY = 24 * 60 * 60 * 1000;

@@ -3,10 +3,12 @@ import { rateLimit } from 'express-rate-limit';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
+import { WhoopError } from '@yuridivonis/whoop-client';
 import type { Config } from './config.js';
 import type { WhoopDatabase } from './database.js';
 import { McpAuthProvider, signInGeneration } from './auth/provider.js';
 import { createMcpServer, type ToolDeps } from './tools.js';
+import { whoopMessage } from './whoop-messages.js';
 
 export interface AppDeps extends Omit<ToolDeps, 'redirectUri' | 'mode'> {
 	config: Config;
@@ -111,11 +113,11 @@ export function createApp({ config, db, client, authStates, updates, log = logTo
 
 		try {
 			// Saves the tokens and starts using them. No data is fetched until a tool asks.
-			await client.exchangeCodeForTokens(code);
+			await client.connect(code);
 			res.send('Authorization successful! You can close this window.');
 		} catch (error) {
 			// The operator's clue when, say, the WHOOP client secret is wrong.
-			const message = error instanceof Error ? error.message : String(error);
+			const message = error instanceof WhoopError ? whoopMessage(error) : error instanceof Error ? error.message : String(error);
 			process.stderr.write(`Connecting WHOOP failed: ${message}\n`);
 			res.status(500).send('Authorization failed. Please try again.');
 		}

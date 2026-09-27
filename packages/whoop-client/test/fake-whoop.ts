@@ -1,4 +1,5 @@
-import type { WhoopCycle, WhoopRecovery, WhoopSleep, WhoopWorkout } from '../src/types.js';
+// Types only, by package name: the server's tests import this fake too, and must not load the library's source.
+import type { WhoopCycle, WhoopRecovery, WhoopSleep, WhoopWorkout } from '@yuridivonis/whoop-client';
 
 const API_PATH = '/developer';
 const TOKEN_URL = 'https://api.prod.whoop.com/oauth/oauth2/token';
@@ -26,7 +27,8 @@ function json(body: unknown, status = 200): Response {
 /**
  * A stand-in for the WHOOP API, for a WhoopClient's `fetch` option. It serves the records
  * the way WHOOP does: newest first, from `start` and before `end`, in pages of `limit`
- * with a next_token. Its token endpoint issues tokens for any code or refresh token.
+ * with a next_token. Its token endpoint issues tokens for any code or refresh token, and it
+ * answers a revoke (DELETE /v2/user/access) with 204.
  */
 export class FakeWhoop {
 	readonly records: WhoopRecords = { cycles: [], recoveries: [], sleeps: [], workouts: [] };
@@ -55,6 +57,7 @@ export class FakeWhoop {
 		this.requests.push(url);
 		if (this.delayMs) await new Promise(resolve => setTimeout(resolve, this.delayMs));
 		if (this.failWith) return json({ error: 'failed' }, this.failWith);
+		if (init?.method === 'DELETE' && url.pathname === `${API_PATH}/v2/user/access`) return new Response(null, { status: 204 });
 
 		const endpoint = ENDPOINTS[url.pathname.replace(API_PATH, '')];
 		if (!endpoint) return json({ error: 'not found' }, 404);

@@ -11,14 +11,17 @@ WORKDIR /app
 # Install dependencies for better-sqlite3
 RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 
-# Copy package files
+# Copy package files (the server's, and the WHOOP client package it's built on)
 COPY package*.json ./
+COPY packages/whoop-client/package.json ./packages/whoop-client/
 
 # Install dependencies
 RUN npm ci
 
 # Copy source files
 COPY tsconfig.json ./
+COPY packages/whoop-client/tsconfig.json ./packages/whoop-client/
+COPY packages/whoop-client/src ./packages/whoop-client/src
 COPY src ./src
 
 # Build TypeScript

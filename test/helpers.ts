@@ -6,8 +6,8 @@ import { createApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import { WhoopDatabase } from '../src/database.js';
 import { PendingAuthStates } from '../src/auth-states.js';
-import { WhoopClient } from '../src/whoop-client.js';
-import { FakeWhoop } from './fake-whoop.js';
+import { WhoopClient } from '@yuridivonis/whoop-client';
+import { FakeWhoop } from '../packages/whoop-client/test/fake-whoop.js';
 
 // crypto.ts encrypts stored WHOOP tokens with this.
 process.env.ENCRYPTION_SECRET ??= 'test-encryption-secret';

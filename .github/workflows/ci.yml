@@ -101,12 +101,42 @@ jobs:
         if: failure()
         run: docker logs server
 
+  # Whether the version in package.json still needs releasing. Only then does the release
+  # below queue, so a merge that changes no version can't take a waiting release's place.
+  pending:
+    name: Anything to release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'yuridivonis/whoop-mcp-server'
+    runs-on: ubuntu-24.04
+    outputs:
+      release: ${{ steps.check.outputs.release }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Look for the version's GitHub release
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(jq -r .version package.json)
+          if out=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v$version" 2>&1); then
+            echo "v$version is already released; nothing to do."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          elif printf '%s' "$out" | grep -q 'HTTP 404'; then
+            echo "v$version has no GitHub release yet, so this run releases it."
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          else
+            printf '%s\n' "$out" >&2
+            exit 1
+          fi
+
   # Merging is releasing: once every check above has passed on a push to main, release.yml
-  # tags, publishes and lists the version in package.json if it's new. Pull requests skip it.
+  # tags, publishes and lists the new version. Pull requests, and merges that change no
+  # version, skip it.
   release:
     name: Release
-    needs: [test, audit, listing, docker]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'yuridivonis/whoop-mcp-server'
+    needs: [test, audit, listing, docker, pending]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'yuridivonis/whoop-mcp-server' && needs.pending.outputs.release == 'true'
     uses: ./.github/workflows/release.yml
     # The most any release job may use; each job in release.yml asks for less.
     permissions:

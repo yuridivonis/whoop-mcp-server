@@ -10,10 +10,12 @@ name: Release
 # Merges that don't change the version release nothing.
 #
 # If a step fails, use "Re-run failed jobs" on the CI run. A version that was tagged but
-# has no GitHub release yet is finished from its tag. If the fix needed a new commit, run
-# this workflow by hand (Actions → Release → Run workflow) with the version: it republishes
-# the image and listing from that version's tag, using the workflow on main. A fix merged
-# after the tag exists releases nothing by itself, so it always needs that step.
+# has no GitHub release yet is finished from its tag, by a re-run or by the next push to
+# main. That includes a tag pushed by hand, or one whose release was deleted: to withdraw a
+# version, delete its tag as well. If the release exists, a later step failed and the fix
+# needed a new commit, run this workflow by hand (Actions → Release → Run workflow) with
+# the version: it republishes the image and listing from that version's tag, using the
+# workflow on main.
 #
 # A republish rebuilds the image, so the version's tag moves to a new digest (attested like
 # the first). CI's releases are jobs in CI's runs; only manual runs appear as runs of this
@@ -33,11 +35,11 @@ on:
 
 permissions: {}
 
-# One release at a time. From CI, the calling job in ci.yml holds the "release" group; the
-# called workflow takes a group of its own, since waiting on its caller's group would
-# deadlock. A manual run takes "release" itself, so it and a CI release never overlap: one
-# waits for the other. GitHub keeps only one waiting, though. A third arrival cancels the
-# one waiting, so don't merge a version bump while two releases are already in line.
+# One release at a time. From CI, the calling job in ci.yml holds the "release" group, and
+# only for a push with something to release. The called workflow takes a group of its own,
+# since waiting on its caller's group would deadlock. A manual run takes "release" itself,
+# so it and a CI release never overlap: one waits for the other. GitHub keeps only one
+# waiting, though: a third release or republish cancels the one waiting.
 concurrency:
   group: ${{ github.event_name == 'workflow_dispatch' && 'release' || format('release-{0}', github.run_id) }}
   cancel-in-progress: false
@@ -102,10 +104,14 @@ jobs:
           version=$(node -p "require('./package.json').version")
           { echo "version=$version"; echo "major=${version%%.*}"; } >> "$GITHUB_OUTPUT"
           if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
-            if gh release view "v$version" >/dev/null; then
+            # Only "not found" means there's no release: any other failure stops here.
+            if out=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v$version" 2>&1); then
               echo "v$version is already released; nothing to do."
               echo "released=false" >> "$GITHUB_OUTPUT"
               exit 0
+            elif ! printf '%s' "$out" | grep -q 'HTTP 404'; then
+              printf '%s\n' "$out" >&2
+              exit 1
             fi
             # A run that pushed the tag and then failed: finish that release, from its tag.
             SHA=$(git rev-list -n 1 "refs/tags/v$version")

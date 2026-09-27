@@ -129,7 +129,8 @@ describe('release workflow', () => {
 		const caller = jobs.slice(jobs.indexOf('\n  release:\n'));
 		assert.match(caller, /uses: \.\/\.github\/workflows\/release\.yml/);
 		assert.deepEqual(caller.match(/needs: \[([^\]]+)\]/)?.[1].split(', ').sort(), names.filter(name => name !== 'release').sort());
-		assert.match(caller, /if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'/);
+		assert.match(caller, /if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'.* && needs\.pending\.outputs\.release == 'true'$/m,
+			'only a push with something to release queues for it');
 		assert.match(caller, /group: release\n\s+cancel-in-progress: false/, 'releases queue, never cancel');
 		assert.match(workflow, /^  workflow_call:$/m);
 		assert.doesNotMatch(workflow, /workflow_run|pull_request_target/, 'no trigger that runs with write access on untrusted code');

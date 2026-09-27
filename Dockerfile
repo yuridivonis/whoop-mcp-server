@@ -1,4 +1,4 @@
-FROM node:24-slim
+FROM node:24-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
 
 # The MCP Registry checks this label to confirm the image belongs to the server it lists.
 LABEL io.modelcontextprotocol.server.name="io.github.yuridivonis/whoop-mcp-server" \

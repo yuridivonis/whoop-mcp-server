@@ -1,7 +1,7 @@
 name: Release
 
-# Merging is releasing. When CI passes on main and package.json has a version that isn't
-# tagged yet, this:
+# Merging is releasing. CI calls this as its last job on every push to main, once all its
+# checks have passed. When package.json has a version that isn't tagged yet, this:
 #   1. tags that commit and publishes the GitHub release, with notes from CHANGELOG.md;
 #   2. builds the Docker image for amd64 and arm64, pushes it to ghcr.io as :<version>,
 #      :<major> (e.g. :1, so a redeploy picks up updates without breaking changes) and
@@ -9,17 +9,22 @@ name: Release
 #   3. publishes server.json to the official MCP Registry.
 # Merges that don't change the version release nothing.
 #
-# If step 2 or 3 fails, use "Re-run failed jobs" on the run. If the fix needed a new commit,
-# run this workflow by hand (Actions → Release → Run workflow) with the version: it
-# republishes the image and listing from that version's tag.
+# If step 2 or 3 fails, use "Re-run failed jobs" on the CI run. If the fix needed a new
+# commit, run this workflow by hand (Actions → Release → Run workflow) with the version: it
+# republishes the image and listing from that version's tag, using the workflow on main. A
+# fix merged after the tag exists releases nothing by itself, so it always needs that step.
+#
+# Don't start a manual run while a CI release is running: the two aren't queued behind each
+# other, and the older one could move :latest or :1 back. Manual runs also keep Scorecard's
+# Packaging check seeing this file in use, so republish the latest version at least once a
+# year.
 #
 # The first image push creates the ghcr.io package, which GitHub may make private. The
 # registry can only verify public images, so step 3 checks first and says how to fix it.
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [main]
+  # From CI's last job (ci.yml), after every other job has passed. A called workflow sees the
+  # caller's context: the push to main and the commit CI tested.
+  workflow_call:
   workflow_dispatch:
     inputs:
       version:
@@ -28,8 +33,8 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: release
+# CI releases are queued one at a time by the job in ci.yml that calls this. Don't add the
+# same group here: GitHub sees the called workflow waiting on its own caller and cancels it.
 
 env:
   IMAGE: ghcr.io/yuridivonis/whoop-mcp-server
@@ -37,15 +42,12 @@ env:
 jobs:
   release:
     name: GitHub release
-    # This repository only, never forks. From CI: only runs for pushes to main, never pull
-    # requests (a fork's branch can also be called main). By hand: anyone who can run
-    # workflows here.
+    # This repository only, never forks. From CI: only pushes to main, never pull requests.
+    # By hand: anyone who can run workflows here.
     if: >-
       github.repository == 'yuridivonis/whoop-mcp-server' && (
         github.event_name == 'workflow_dispatch' || (
-          github.event.workflow_run.conclusion == 'success' &&
-          github.event.workflow_run.event == 'push' &&
-          github.event.workflow_run.head_repository.full_name == github.repository
+          github.event_name == 'push' && github.ref == 'refs/heads/main'
         )
       )
     runs-on: ubuntu-24.04
@@ -60,7 +62,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -71,7 +73,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
-          SHA: ${{ github.event.workflow_run.head_sha }}
+          SHA: ${{ github.sha }}
           REQUESTED: ${{ inputs.version }}
         run: |
           if [ "$EVENT" = workflow_dispatch ]; then

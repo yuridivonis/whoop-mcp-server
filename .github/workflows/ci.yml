@@ -8,15 +8,18 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request cancels the older run. On main, every push gets a group of
+# its own, so a run that is releasing is never cancelled.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Actions are pinned to full commit SHAs, so a moved or compromised tag can't change what runs.
 jobs:
   test:
     name: Test (Node ${{ matrix.node }})
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     strategy:
       matrix:
         node: [22, 24]
@@ -97,3 +100,20 @@ jobs:
       - name: Server logs
         if: failure()
         run: docker logs server
+
+  # Merging is releasing: once every check above has passed on a push to main, release.yml
+  # tags, publishes and lists the version in package.json if it's new. Pull requests skip it.
+  release:
+    name: Release
+    needs: [test, audit, listing, docker]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'yuridivonis/whoop-mcp-server'
+    uses: ./.github/workflows/release.yml
+    # The most any release job may use; each job in release.yml asks for less.
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+    concurrency:
+      group: release
+      cancel-in-progress: false

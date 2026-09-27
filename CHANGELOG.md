@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.4.1] - 2026-09-27
+
+More checks on the code and on how releases are built, and two small fixes. Nothing to do when upgrading: redeploy, or let Railway's auto updates do it.
+
+### Changed
+
+- **Releases run inside CI:** merging a new version releases it from CI's last job, once every check has passed, instead of from a separate workflow that CI's result started. The release itself hasn't changed. (#20)
+- **A pinned base image:** the Docker image builds on one exact `node:24-slim` image, fixed by its digest, so the same code always builds on the same base. (#20)
+- **Dependabot:** every week, it proposes updates to npm packages, GitHub Actions and the base image as pull requests, waiting a week after each new release first. (#20)
+- **CodeQL:** every pull request, and a weekly scan, checks the code and the workflows for security problems. (#20)
+- **Property tests:** each test run tries hundreds of generated cases on token refreshes that race each other, reading every page from WHOOP, escaping on the sign-in page, which callback addresses are allowed, local days and encryption. (#20)
+
+### Fixed
+
+- **Long app names:** cutting an app name at 80 characters could split an emoji in half, leaving a broken character on the sign-in page and in the log. Names are now cut between characters. (#20)
+- **Encryption:** an encrypted empty value couldn't be decrypted. The server only encrypts WHOOP tokens, which are never empty, so this shouldn't have affected anyone. (#20)
+
 ## [1.4.0] - 2026-09-26
 
 Works with the AI you use, and tells you when an update is out. Nothing to do when upgrading: redeploy, or let Railway's auto updates do it.
@@ -143,6 +160,7 @@ Upgrading takes a few minutes: see [Upgrading from 1.0.0](README.md#upgrading-fr
 
 Initial release: a remote MCP server with Whoop recovery, sleep, and strain tools, a local SQLite cache, and Railway deployment.
 
+[1.4.1]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.1
 [1.4.0]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.0
 [1.3.1]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.3.1
 [1.3.0]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.3.0

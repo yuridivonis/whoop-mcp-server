@@ -122,6 +122,20 @@ describe('release workflow', () => {
 		}
 	});
 
+	it('runs as the last job of CI on main, once every other job has passed', () => {
+		const ci = read('.github/workflows/ci.yml');
+		const jobs = ci.slice(ci.indexOf('\njobs:\n'));
+		const names = [...jobs.matchAll(/^  ([a-z-]+):$/gm)].map(match => match[1]);
+		const caller = jobs.slice(jobs.indexOf('\n  release:\n'));
+		assert.match(caller, /uses: \.\/\.github\/workflows\/release\.yml/);
+		assert.deepEqual(caller.match(/needs: \[([^\]]+)\]/)?.[1].split(', ').sort(), names.filter(name => name !== 'release').sort());
+		assert.match(caller, /if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'/);
+		assert.match(caller, /group: release\n\s+cancel-in-progress: false/, 'releases queue, never cancel');
+		assert.match(workflow, /^  workflow_call:$/m);
+		assert.doesNotMatch(workflow, /workflow_run|pull_request_target/, 'no trigger that runs with write access on untrusted code');
+		assert.doesNotMatch(workflow, /^concurrency:/m, "the caller's group would deadlock with its own");
+	});
+
 	it('moves :latest and the major tag only to the newest release', () => {
 		const moving = workflow.split('\n').filter(line => /:latest|outputs\.major\)/.test(line) && line.includes('format('));
 		assert.equal(moving.length, 2);

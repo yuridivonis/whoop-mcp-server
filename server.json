@@ -3,7 +3,7 @@
   "name": "io.github.yuridivonis/whoop-mcp-server",
   "title": "Whoop MCP Server",
   "description": "Your WHOOP recovery, sleep, strain and workouts in Claude, ChatGPT or other MCP apps. Self-hosted.",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "websiteUrl": "https://github.com/yuridivonis/whoop-mcp-server#readme",
   "repository": {
     "url": "https://github.com/yuridivonis/whoop-mcp-server",
@@ -13,7 +13,7 @@
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/yuridivonis/whoop-mcp-server:1.4.0",
+      "identifier": "ghcr.io/yuridivonis/whoop-mcp-server:1.4.1",
       "transport": {
         "type": "streamable-http",
         "url": "http://localhost:3000/mcp"

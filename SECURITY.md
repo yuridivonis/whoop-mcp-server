@@ -57,7 +57,7 @@ Include what you found, how to reproduce it, and what an attacker could do with 
 - **Least data:** the server asks Whoop only for recovery, cycles, sleep, and workouts.
 - **Stored Whoop tokens:** encrypted with AES-256-GCM, using a key derived from `ENCRYPTION_SECRET` (or `WHOOP_CLIENT_SECRET` if that isn't set).
 - **Public endpoints:** `/health` only reports that the server is up, and says nothing about your data or your Whoop connection.
-- **Supply chain:** actions are pinned to commits and the base image to a digest, release images are attested, and CI checks dependencies for known vulnerabilities and non-permissive licences. CodeQL scans every pull request, and Dependabot proposes updates weekly. The README's OpenSSF Scorecard badge shows the current rating.
+- **Supply chain:** actions are pinned to commits and the base image to a digest, release images are attested, and CI checks dependencies for known vulnerabilities and non-permissive licences. CodeQL scans every pull request, and Dependabot proposes updates weekly. The README's OpenSSF Scorecard badge shows the current rating, and the project holds the [OpenSSF Best Practices](https://www.bestpractices.dev/projects/14971) passing badge.
 
 ## If you run a deployment
 

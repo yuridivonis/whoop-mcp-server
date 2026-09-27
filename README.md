@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/yuridivonis/whoop-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/yuridivonis/whoop-mcp-server/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/yuridivonis/whoop-mcp-server/badge)](https://scorecard.dev/viewer/?uri=github.com/yuridivonis/whoop-mcp-server)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14971/badge)](https://www.bestpractices.dev/projects/14971)
 [![Latest release](https://img.shields.io/github/v/release/yuridivonis/whoop-mcp-server)](https://github.com/yuridivonis/whoop-mcp-server/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -263,7 +264,11 @@ To run your own changes, fork this repository and deploy the fork instead of the
 
 ## Contributing
 
-Issues and pull requests are welcome. Before opening a pull request, run `npm test` and `npm run typecheck`; CI runs both, along with a Docker smoke test.
+Issues and pull requests are welcome. Every change goes through a pull request, and can merge only once CI passes and the maintainer has reviewed it.
+
+- **Tests come with changes.** A new feature or bug fix adds tests for it to the automated suite in `test/`. Before opening a pull request, run `npm test` and `npm run typecheck`. Every pull request runs both in CI, along with a Docker smoke test, and a CodeQL scan.
+- **Code style:** TypeScript in strict mode, as in `src/` and `test/`, written like the code around it. No new dependency without a reason in the pull request.
+- **Security issues:** report them privately, as [SECURITY.md](SECURITY.md) describes, not in an issue.
 
 **Synthetic data only.** The tests run against a fake Whoop API that serves made-up records ([test/fake-whoop.ts](test/fake-whoop.ts)), and future evaluations will too. Never put real Whoop data, yours or anyone else's, in tests, fixtures, issues or pull requests: WHOOP's terms forbid using it to test AI systems, and it's personal health data.
 

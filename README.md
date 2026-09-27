@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/yuridivonis/whoop-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/yuridivonis/whoop-mcp-server/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/yuridivonis/whoop-mcp-server/badge)](https://scorecard.dev/viewer/?uri=github.com/yuridivonis/whoop-mcp-server)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14971/badge)](https://www.bestpractices.dev/projects/14971)
 [![Latest release](https://img.shields.io/github/v/release/yuridivonis/whoop-mcp-server)](https://github.com/yuridivonis/whoop-mcp-server/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 

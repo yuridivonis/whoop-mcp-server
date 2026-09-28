@@ -76,16 +76,31 @@ describe('the set-up page, once the WHOOP app is configured', () => {
 		}
 	});
 
-	it('shows the Redirect URL without any credentials or query the operator put in it, and escaped', async () => {
-		const odd = await startTestServer({ env: { WHOOP_REDIRECT_URI: 'https://user:hunter2@whoop.example.com:8443/cb/<x>?key=private-token#frag' } });
+	it('shows the Redirect URL without any credentials or query the operator put in it, says so, and escapes it', async () => {
+		const odd = await startTestServer({ env: { WHOOP_REDIRECT_URI: 'https://user:hunter2@whoop.example.com:8443/cb/&copy;/<x>?key=private-token#frag' } });
 		try {
 			const { body } = await page(odd);
-			assert.ok(body.includes('<code>https://whoop.example.com:8443/cb/%3Cx%3E</code>'));
-			for (const secret of ['hunter2', 'user:', 'private-token', 'frag', '<x>']) {
+			// The URL parser keeps & and percent-encodes < >; the page must escape what's left.
+			assert.ok(body.includes('<code>https://whoop.example.com:8443/cb/&amp;copy;/%3Cx%3E</code>'));
+			assert.ok(body.includes('Register the exact value you configured.'));
+			for (const secret of ['hunter2', 'user:', 'private-token', 'frag', '<x>', '/&copy;']) {
 				assert.ok(!body.includes(secret), `the page must not show ${secret}`);
 			}
 		} finally {
 			await odd.close();
+		}
+		assert.ok(!(await page(server)).body.includes('Register the exact value'), 'no such note for an ordinary address');
+	});
+
+	it('looks the same whatever host it runs on, given the same addresses', async () => {
+		const railway = await startTestServer({ env: { RAILWAY_ENVIRONMENT_ID: 'env-123', RAILWAY_PUBLIC_DOMAIN: 'whoop-abc.up.railway.app' } });
+		try {
+			// Both servers get explicit addresses from the helper; only the hosting variables differ.
+			const a = (await page(server)).body.replaceAll(server.baseUrl, 'BASE');
+			const b = (await page(railway)).body.replaceAll(railway.baseUrl, 'BASE');
+			assert.equal(b, a);
+		} finally {
+			await railway.close();
 		}
 	});
 

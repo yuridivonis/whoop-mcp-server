@@ -37,6 +37,10 @@ export function renderFirstRunPage(config: Pick<Config, 'redirectUri' | 'publicU
 	const httpsNote = redirectUrl.protocol === 'https:'
 		? ''
 		: `  <p class="note">WHOOP only accepts https addresses. On your own computer, set <code>WHOOP_REDIRECT_URI</code> to your tunnel's <code>/callback</code>.</p>\n`;
+	// The page shows the address without credentials or a query; WHOOP gets the configured value.
+	const redactedNote = redirectUrl.href === config.redirectUri
+		? ''
+		: `  <p class="note">Shown without any credentials or query in <code>WHOOP_REDIRECT_URI</code>. Register the exact value you configured.</p>\n`;
 
 	const steps = config.whoopConfigured
 		? `  <h2>Your WHOOP app</h2>
@@ -66,7 +70,7 @@ export function renderFirstRunPage(config: Pick<Config, 'redirectUri' | 'publicU
   <div class="setup">
   <h2>Your WHOOP app's Redirect URL</h2>
   <p class="box"><code>${redirect}</code></p>
-${httpsNote}${config.whoopConfigured ? '  <p class="note">Check it matches the Redirect URL in your WHOOP app.</p>\n' : ''}${steps}
+${httpsNote}${redactedNote}${config.whoopConfigured ? '  <p class="note">Check it matches the Redirect URL in your WHOOP app.</p>\n' : ''}${steps}
   </div>
   <footer>
     <p>${link(REPO, 'Source on GitHub')} · ${link(`${REPO}/blob/main/PRIVACY.md`, 'Privacy')} · ${link(`${REPO}/blob/main/SECURITY.md`, 'Security')}</p>

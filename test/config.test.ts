@@ -116,18 +116,22 @@ describe('the WHOOP callback address, when WHOOP_REDIRECT_URI is not set', () =>
 	});
 
 	it('refuses an address whose host is missing, as a reference to a domain that does not exist yet gives', () => {
-		assert.throws(() => loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, WHOOP_REDIRECT_URI: 'https:///callback' }), /WHOOP_REDIRECT_URI has no host/);
-		assert.throws(() => loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, PUBLIC_URL: 'https:///' }), /PUBLIC_URL has no host/);
-		// However the scheme is spelled, and however many slashes: the parser treats them all alike.
-		assert.throws(() => loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, WHOOP_REDIRECT_URI: ' HTTPS:///callback' }), /WHOOP_REDIRECT_URI has no host/);
-		assert.throws(() => loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, PUBLIC_URL: 'https:////' }), /PUBLIC_URL has no host/);
+		assert.throws(() => loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, WHOOP_REDIRECT_URI: 'https:///callback' }), /WHOOP_REDIRECT_URI must be an http\(s\) address with a host/);
+		assert.throws(() => loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, PUBLIC_URL: 'https:///' }), /PUBLIC_URL must be an http\(s\) address with a host/);
+		// However the scheme is spelled, and however the slashes are written: the parser would invent a host from the path.
+		for (const value of [' HTTPS:///callback', 'https:////callback', 'https:/callback', 'https:\\\\example.com/callback', 'https:\\/example.com/callback']) {
+			assert.throws(() => loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, WHOOP_REDIRECT_URI: value }), /WHOOP_REDIRECT_URI must be an http\(s\) address/, JSON.stringify(value));
+		}
+		// An opaque scheme would keep credentials in its path, where the set-up page can't strip them.
+		assert.throws(() => loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, PUBLIC_URL: 'https://example.com', WHOOP_REDIRECT_URI: 'blob:https://user:pw@example.com/callback' }), /WHOOP_REDIRECT_URI must be an http\(s\) address/);
+		assert.throws(() => loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, WHOOP_REDIRECT_URI: 'cursor://example/callback' }), /WHOOP_REDIRECT_URI must be an http\(s\) address/);
 		// A single-label host is unusual but valid, and was accepted before.
 		assert.equal(loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, WHOOP_REDIRECT_URI: 'https://myserver/callback' }).publicUrl.href, 'https://myserver/');
 	});
 
 	it('refuses a WHOOP_REDIRECT_URI that is not a URL, even when PUBLIC_URL supplies the public address', () => {
 		for (const value of ['', '/callback', 'your-app.up.railway.app/callback']) {
-			assert.throws(() => loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, PUBLIC_URL: 'http://localhost:3000', WHOOP_REDIRECT_URI: value }), /WHOOP_REDIRECT_URI must be a valid URL/, JSON.stringify(value));
+			assert.throws(() => loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, PUBLIC_URL: 'http://localhost:3000', WHOOP_REDIRECT_URI: value }), /WHOOP_REDIRECT_URI must be/, JSON.stringify(value));
 		}
 		assert.equal(loadConfig({ MCP_MODE: 'stdio', PUBLIC_URL: 'http://localhost:3000', WHOOP_REDIRECT_URI: '/callback' }).mode, 'stdio', 'stdio serves no page');
 	});

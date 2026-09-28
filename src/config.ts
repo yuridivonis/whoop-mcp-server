@@ -104,12 +104,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 	const whoopConfigured = (env.WHOOP_CLIENT_ID ?? '').trim() !== '' && (env.WHOOP_CLIENT_SECRET ?? '').trim() !== '';
 
 	if (mode === 'http') {
-		// A reference to a domain that doesn't exist yet gives "https:///callback", which
-		// parses to the host "callback" and would pass every check below. Any spelling of the
-		// scheme, and any number of extra slashes, parse the same way.
+		// Both addresses must be http(s) with a real host. The URL parser is lenient: a
+		// reference to a domain that doesn't exist yet gives "https:///callback", and
+		// "https:/callback" or a backslash form parse to the host "callback"; an opaque scheme
+		// keeps credentials in its path. All are refused here, on the raw strings.
 		for (const [name, value] of [['PUBLIC_URL', env.PUBLIC_URL], ['WHOOP_REDIRECT_URI', env.WHOOP_REDIRECT_URI]] as const) {
-			if (value !== undefined && /^\s*https?:\/{3,}/i.test(value)) {
-				throw new ConfigError(`${name} has no host (got "${value}"). Is the service's domain generated yet?`);
+			if (value !== undefined && !/^\s*https?:\/\/[^/\\?#\s]+/i.test(value)) {
+				throw new ConfigError(`${name} must be an http(s) address with a host, e.g. https://your-app.up.railway.app (got "${value}"). Is the service's domain generated yet?`);
 			}
 		}
 		if (env.RAILWAY_ENVIRONMENT_ID && !env.WHOOP_REDIRECT_URI && !env.PUBLIC_URL && !env.RAILWAY_PUBLIC_DOMAIN?.trim()) {

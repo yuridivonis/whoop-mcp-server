@@ -232,8 +232,8 @@ describe('the WHOOP client package', () => {
 		for (const path of paths) {
 			assert.ok(
 				['package.json', 'README.md', 'LICENSE'].includes(path) ||
-					/^dist\/[\w.-]+\.(js|d\.ts|js\.map|d\.ts\.map)$/.test(path) ||
-					/^src\/[\w.-]+\.ts$/.test(path),
+					/^dist\/[\w./-]+\.(js|d\.ts|js\.map|d\.ts\.map)$/.test(path) ||
+					/^src\/[\w./-]+\.ts$/.test(path),
 				`${path} would be published`,
 			);
 		}
@@ -246,7 +246,7 @@ describe('the WHOOP client package', () => {
 			...readdirSync(new URL('./', import.meta.url), { recursive: true }).map(file => `test/${String(file)}`),
 		].filter(file => file.endsWith('.ts'));
 		for (const file of files) {
-			for (const [, specifier] of read(file).matchAll(/from '([^']+)'/g)) {
+			for (const [, specifier] of read(file).matchAll(/(?:from|import\s*\()\s*['"]([^'"]+)['"]/g)) {
 				if (!specifier.includes('packages/whoop-client')) continue;
 				assert.match(specifier, /^\.\.\/packages\/whoop-client\/test\/fake-whoop\.js$/, `${file} imports ${specifier}`);
 			}

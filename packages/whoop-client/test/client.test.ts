@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
 	WhoopAuthError,
 	WhoopClient,
+	WhoopError,
 	WhoopProtocolError,
 	WhoopRateLimitError,
 	WhoopRequestError,
@@ -51,7 +52,7 @@ class FakeWhoop {
 	tokenThrows?: Error;
 	/** How long the tokens it issues last, in seconds. */
 	expiresIn = 3600;
-	/** When set, replaces the token endpoint's 200 body, to test malformed answers. */
+	/** When set, replaces the token endpoint's body (200 or an error status), to test malformed answers. */
 	tokenBody?: string;
 	private readonly spent = new Set<string>();
 	private issued = 0;
@@ -67,6 +68,7 @@ class FakeWhoop {
 			// Keep the refresh in flight long enough for parallel callers to pile up.
 			await new Promise(resolve => setTimeout(resolve, 20));
 			if (this.tokenThrows) throw this.tokenThrows;
+			if (this.tokenBody !== undefined && this.tokenStatus !== 200) return new Response(this.tokenBody, { status: this.tokenStatus });
 			if (this.tokenStatus !== 200) return json({ error: this.tokenStatus < 500 ? this.tokenError : 'server_error' }, this.tokenStatus);
 			const presented = form.get('refresh_token');
 			if (presented !== null) {
@@ -498,14 +500,28 @@ describe('WhoopClient token refresh', () => {
 		const store = new MemoryStore(tokens(-1));
 		const load = store.load.bind(store);
 		const save = store.save.bind(store);
+		// Staged: sleeps()'s first load answers only once the refreshed tokens start saving, and
+		// that save finishes only after it has answered. With the fix, that load waits for the
+		// lock instead, runs before the refresh, and would wait forever; a fallback timer far
+		// longer than the fake's 20 ms token delay lets it go on, and the save then doesn't wait.
+		let refreshedSaveStarted!: () => void;
+		const refreshedSaving = new Promise<void>(resolve => { refreshedSaveStarted = resolve; });
+		let staleLoadAnswered!: () => void;
+		const staleLoadDone = new Promise<void>(resolve => { staleLoadAnswered = resolve; });
 		let loads = 0;
 		store.load = async () => {
 			const loaded = await load();
-			if (++loads === 2) await new Promise(resolve => setTimeout(resolve, 30)); // sleeps()'s first load
+			if (++loads === 2) {
+				await Promise.race([refreshedSaving, new Promise(resolve => setTimeout(resolve, 250))]);
+				queueMicrotask(staleLoadAnswered);
+			}
 			return loaded;
 		};
 		store.save = async saved => {
-			if (saved.refresh_token === 'refresh-1') await new Promise(resolve => setTimeout(resolve, 50));
+			if (saved.refresh_token === 'refresh-1') {
+				refreshedSaveStarted();
+				if (loads >= 2) await staleLoadDone;
+			}
 			return save(saved);
 		};
 		const client = newClient(whoop, store);
@@ -723,6 +739,21 @@ describe('WhoopClient revokeAccess', () => {
 		await assertRevoked(client, store);
 	});
 
+	it("clears nothing when WHOOP's refusal can't be read, since the grant may still be live", async () => {
+		// A 401 with an HTML body (a proxy, say) is classed as the authorization ending for reads,
+		// but a revoke mustn't forget tokens on that evidence alone: no DELETE was ever sent.
+		const whoop = new FakeWhoop();
+		whoop.tokenStatus = 401;
+		whoop.tokenBody = '<html>maintenance</html>';
+		const store = new MemoryStore(tokens(-1));
+		const client = newClient(whoop, store);
+
+		await assert.rejects(client.revokeAccess(), (error: unknown) => authError('authorization_ended')(error) && (error as WhoopAuthError).oauthError === undefined);
+		assert.equal(whoop.apiCalls.length, 0);
+		assert.equal(store.clears, 0);
+		assert.equal(store.tokens?.refresh_token, 'refresh-0');
+	});
+
 	it("asks to reconnect, and clears nothing, when the grant is gone but the token hadn't expired", async () => {
 		// The proactive refresh is refused, which leaves the mark; the DELETE then gets a 401.
 		const whoop = new FakeWhoop(() => json({}, 401));
@@ -919,6 +950,7 @@ describe('WhoopClient error details', () => {
 	});
 
 	it('gives every error class a stable name', () => {
+		assert.equal(new WhoopError('x').name, 'WhoopError');
 		assert.equal(new WhoopAuthError('not_connected').name, 'WhoopAuthError');
 		assert.equal(new WhoopRateLimitError().name, 'WhoopRateLimitError');
 		assert.equal(new WhoopUnavailableError('x').name, 'WhoopUnavailableError');

@@ -76,8 +76,12 @@ class ScheduledWhoop {
 
 	/** Whether tokens with this refresh token belong to a grant that's neither revoked nor dead. */
 	live(refreshToken: string): boolean {
-		const [grant] = order(refreshToken);
-		return !this.revoked.has(grant) && !this.dead.has(grant);
+		return !this.gone(order(refreshToken)[0]);
+	}
+
+	/** A grant WHOOP no longer honours: every token of it is refused from then on. */
+	private gone(grant: number): boolean {
+		return this.revoked.has(grant) || this.dead.has(grant);
 	}
 
 	/** From now on WHOOP behaves (revoked grants stay revoked). */
@@ -103,7 +107,7 @@ class ScheduledWhoop {
 				return response;
 			}
 			const presented = form.get('refresh_token') ?? '';
-			if (this.revoked.has(order(presented)[0])) {
+			if (this.gone(order(presented)[0])) {
 				if (this.read.has(presented)) this.violations.push(`presented ${presented} again`);
 				this.read.add(presented);
 				return Response.json({ error: 'invalid_grant' }, { status: 400 });
@@ -126,7 +130,7 @@ class ScheduledWhoop {
 			return rotated;
 		}
 		const bearer = new Headers(init?.headers).get('authorization')?.replace('Bearer ', '');
-		if (this.revoked.has(grantOf(bearer))) return Response.json({}, { status: 401 });
+		if (this.gone(grantOf(bearer))) return Response.json({}, { status: 401 });
 		const newest = bearer === this.latestAccess.get(grantOf(bearer));
 		const outcome = this.apiOutcomes.shift() ?? 'ok';
 		if (outcome === 'rejected' && newest) this.dead.add(grantOf(bearer));

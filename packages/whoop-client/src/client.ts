@@ -48,6 +48,8 @@ export interface WhoopClientOptions {
 /** What one request presented to WHOOP, filled in as it goes, so revokeAccess() knows which grant it revoked. */
 interface Sent {
 	tokens?: WhoopTokens;
+	/** WHOOP itself ended the authorization for these tokens: an explicit invalid_grant, or a 401 even after a refresh. */
+	ended?: boolean;
 }
 
 // Network errors that mean the request never left this machine.
@@ -239,9 +241,11 @@ export class WhoopClient {
 	 * app, not just these.
 	 *
 	 * Tokens someone saved while the revoke was in flight, such as a reconnect, are kept and
-	 * used instead: they may be a new, live authorization. If WHOOP had already ended the
-	 * authorization, that counts as revoked. Not connected, or any other failure, rejects and
-	 * forgets nothing, so it can be retried.
+	 * used instead: they may be a new, live authorization. If WHOOP itself had already ended
+	 * the authorization (it refused the refresh token, or the access token even after a
+	 * refresh), that counts as revoked. Not connected, or any other failure, rejects and
+	 * forgets nothing, so it can be retried. A store whose clear() fails twice still leaves
+	 * this client disconnected; its error is then thrown.
 	 */
 	async revokeAccess(): Promise<void> {
 		const sent: Sent = {};
@@ -250,7 +254,9 @@ export class WhoopClient {
 			// A 204 has no body; anything else is read and dropped, so it can't hold the connection.
 			await response.body?.cancel().catch(() => {});
 		} catch (error) {
-			if (!(error instanceof WhoopAuthError && error.reason === 'authorization_ended')) throw error;
+			// Only an ending WHOOP made explicit counts: a 401 with an unreadable body could be a
+			// proxy or an outage, and forgetting the tokens then would abandon a live grant.
+			if (!(error instanceof WhoopAuthError && error.reason === 'authorization_ended' && sent.ended)) throw error;
 		}
 		// The grant revoked is the one the DELETE carried, not whatever this client holds now:
 		// a connect() on this client can replace its tokens while the DELETE is in flight.
@@ -331,7 +337,10 @@ export class WhoopClient {
 			} catch (error) {
 				// Refused: the authorization has ended.
 				if (error instanceof WhoopAuthError) {
-					if (sent) sent.tokens = held;
+					if (sent) {
+						sent.tokens = held;
+						sent.ended = error.oauthError === 'invalid_grant';
+					}
 					throw error;
 				}
 				// Turned away, or never sent: the refresh token is unspent, so clear the mark. If
@@ -380,7 +389,7 @@ export class WhoopClient {
 		if (response.status === 400 || response.status === 401) {
 			const error = await oauthError(response);
 			// WHOOP refused the code or refresh token itself: only a new authorization helps.
-			if (error === 'invalid_grant' || error === undefined) throw new WhoopAuthError('authorization_ended');
+			if (error === 'invalid_grant' || error === undefined) throw new WhoopAuthError('authorization_ended', undefined, { oauthError: error });
 			// Refused before the token was looked at, such as for a wrong client secret.
 			throw new WhoopRequestError(`WHOOP refused the app's client credentials (${error}).`, response.status, { oauthError: error });
 		}
@@ -437,6 +446,7 @@ export class WhoopClient {
 			sent.tokens = this.tokens;
 			response = await this.send(url, { method, headers: { Authorization: `Bearer ${this.tokens.access_token}` } });
 			if (response.status === 401) {
+				sent.ended = true;
 				throw new WhoopAuthError('authorization_ended');
 			}
 		}

@@ -64,11 +64,11 @@ try {
 
 ## Errors
 
-Every error from WHOOP is a `WhoopError`. Each class has a stable `name`, for code that can't rely on `instanceof`.
+Every error from WHOOP is a `WhoopError`, with one exception for now: a data endpoint answering 200 with something that isn't JSON still surfaces as the parser's own `SyntaxError` (wrapped in the next release). Each class has a stable `name`, for code that can't rely on `instanceof`.
 
 | Class | Meaning |
 |---|---|
-| `WhoopAuthError` | The user must sign in again. `reason` says why: `not_connected`, `refresh_interrupted` or `authorization_ended`. New reasons may come in a minor release, so a `switch` on it needs a default branch |
+| `WhoopAuthError` | The user must sign in again. `reason` says why: `not_connected`, `refresh_interrupted` or `authorization_ended`. `oauthError` is `invalid_grant` when WHOOP refused the token explicitly. New reasons may come in a minor release, so a `switch` on it needs a default branch |
 | `WhoopRateLimitError` | WHOOP's rate limit. `resetSeconds` comes from WHOOP's `X-RateLimit-Reset`, when sent |
 | `WhoopUnavailableError` | WHOOP failed (5xx), timed out, or couldn't be reached. Also carries `status` and `reachedWhoop` |
 | `WhoopRequestError` | WHOOP turned the request away (another 4xx). Carries `status`, and `oauthError` when the app's own credentials were refused |
@@ -87,7 +87,7 @@ interface TokenStore {
 }
 ```
 
-- **`save` and `clear` must be durable** before they resolve. The client retries each once.
+- **`save` and `clear` must be durable** before they resolve. The client retries each once. If `clear` fails twice, the client still forgets its tokens and throws the store's error.
 - **Store the tokens exactly as given,** including `refresh_started_at`: it marks a refresh in progress.
 - **Share one store object** between clients in the same process: they then refresh one at a time.
 - **Implement `withLock` when several processes share the tokens.**
@@ -96,6 +96,7 @@ interface TokenStore {
 - **Implement `clear` if you use `revokeAccess()`.**
   - Without it, the store keeps tokens WHOOP has revoked, and their next use asks the user to sign in again.
   - `revokeAccess()` never clears tokens saved while it was running, such as a reconnect: they may be a new, live authorization.
+  - It forgets tokens without a revoke only when WHOOP itself has ended the authorization: an explicit `invalid_grant`, or a 401 even after a refresh. A refusal it can't read (say, a proxy's 401 page) is thrown instead, so a live grant is never abandoned.
   - WHOOP's revoke may cover all of the user's tokens for your app, so a reconnect WHOOP handled before the revoke can end up revoked too, and asks to sign in again when used.
 
 ## Licence

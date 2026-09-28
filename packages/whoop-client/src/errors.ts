@@ -28,11 +28,14 @@ const AUTH_MESSAGES: Record<WhoopAuthReason, string> = {
 /** WHOOP isn't connected, or the authorization can't be used any more: the user has to authorize again. */
 export class WhoopAuthError extends WhoopError {
 	readonly reason: WhoopAuthReason;
+	/** The OAuth error code WHOOP gave when it refused the code or refresh token itself (`invalid_grant`), if it gave one. */
+	readonly oauthError?: string;
 
-	constructor(reason: WhoopAuthReason, message: string = AUTH_MESSAGES[reason], options?: ErrorOptions) {
+	constructor(reason: WhoopAuthReason, message: string = AUTH_MESSAGES[reason], { oauthError, ...options }: { oauthError?: string } & ErrorOptions = {}) {
 		super(message, options);
 		this.name = 'WhoopAuthError';
 		this.reason = reason;
+		this.oauthError = oauthError;
 	}
 }
 

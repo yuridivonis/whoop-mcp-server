@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "composite": true,
+    "declarationMap": true,
+    // No Node types: the library runs anywhere with fetch, so `process` and `node:` imports don't compile.
+    "types": []
+  },
+  "include": ["src/**/*"]
+}

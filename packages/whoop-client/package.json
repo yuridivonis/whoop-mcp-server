@@ -1,0 +1,49 @@
+{
+  "name": "@yuridivonis/whoop-client",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A small, typed client for the WHOOP API v2: sign-in, token refresh that survives WHOOP's rotating refresh tokens, and your recovery, sleep, strain and workouts.",
+  "keywords": [
+    "whoop",
+    "whoop-api",
+    "oauth",
+    "health",
+    "fitness",
+    "wearables"
+  ],
+  "author": "Yuri Dvoinos",
+  "license": "MIT",
+  "homepage": "https://github.com/yuridivonis/whoop-mcp-server/tree/main/packages/whoop-client#readme",
+  "bugs": {
+    "url": "https://github.com/yuridivonis/whoop-mcp-server/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yuridivonis/whoop-mcp-server",
+    "directory": "packages/whoop-client"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "tsc -b && node --import tsx --test test/*.test.ts"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

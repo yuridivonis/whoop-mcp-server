@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync, type ExecFileSyncOptionsWithStringEncoding } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { licenseAllowed } from '../scripts/check-licenses.mjs';
 
@@ -78,7 +79,7 @@ function headingAnchors(doc: string): Set<string> {
 describe('documentation links', () => {
 	it('point to files and headings that exist', () => {
 		const repoHome = 'https://github.com/yuridivonis/whoop-mcp-server#';
-		for (const doc of ['README.md', 'SECURITY.md', 'PRIVACY.md', 'CHANGELOG.md', 'docs/add-to-your-ai.md']) {
+		for (const doc of ['README.md', 'SECURITY.md', 'PRIVACY.md', 'CHANGELOG.md', 'docs/add-to-your-ai.md', 'packages/whoop-client/README.md']) {
 			for (const [, link] of read(doc).matchAll(/\]\(([^)\s]+)\)/g)) {
 				let target: string;
 				if (link.startsWith(repoHome)) target = `README.md${link.slice(repoHome.length - 1)}`;
@@ -177,5 +178,78 @@ describe('licence check', () => {
 		assert.ok(licenseAllowed('(MIT OR Apache-2.0) AND BSD-3-Clause'));
 		assert.ok(!licenseAllowed('MIT WITH Classpath-exception-2.0'), 'exceptions are refused');
 		assert.ok(!licenseAllowed('(MIT'), 'malformed expressions are refused');
+	});
+});
+
+describe('the WHOOP client package', () => {
+	const pkg = JSON.parse(read('packages/whoop-client/package.json')) as Record<string, unknown>;
+	const root = JSON.parse(read('package.json')) as { author: string; dependencies: Record<string, string> };
+
+	it('is ready to publish, but kept private until then', () => {
+		assert.equal(pkg.name, '@yuridivonis/whoop-client');
+		assert.equal(pkg.private, true, 'flipped when it is published');
+		assert.equal(pkg.license, 'MIT');
+		assert.equal(pkg.type, 'module');
+		assert.equal(pkg.sideEffects, false);
+		assert.equal(pkg.author, root.author);
+		assert.ok(typeof pkg.description === 'string' && pkg.description.length > 0);
+		assert.deepEqual(pkg.repository, { type: 'git', url: 'https://github.com/yuridivonis/whoop-mcp-server', directory: 'packages/whoop-client' });
+		assert.equal(pkg.homepage, 'https://github.com/yuridivonis/whoop-mcp-server/tree/main/packages/whoop-client#readme');
+		assert.deepEqual(pkg.bugs, { url: 'https://github.com/yuridivonis/whoop-mcp-server/issues' });
+		assert.deepEqual(pkg.exports, { '.': { types: './dist/index.d.ts', default: './dist/index.js' } });
+		assert.equal(pkg.main, './dist/index.js');
+		assert.equal(pkg.types, './dist/index.d.ts');
+		assert.deepEqual(pkg.files, ['dist', 'src']);
+		assert.deepEqual(pkg.engines, { node: '>=22' });
+		assert.deepEqual(pkg.publishConfig, { access: 'public' });
+	});
+
+	it('has no runtime dependencies of its own', () => {
+		for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies']) {
+			assert.equal(pkg[field], undefined, `no ${field}`);
+		}
+	});
+
+	it('is the exact version the server depends on, so npm always links the workspace', () => {
+		assert.equal(root.dependencies['@yuridivonis/whoop-client'], pkg.version);
+	});
+
+	it('carries the licence and the not-affiliated line', () => {
+		assert.equal(read('packages/whoop-client/LICENSE'), read('LICENSE'));
+		assert.match(
+			read('packages/whoop-client/README.md'),
+			/It uses the WHOOP API to access data from WHOOP products, and is not affiliated with, endorsed by, or sponsored by WHOOP\./,
+		);
+	});
+
+	it('would publish only its build, its source, the README and the licence', () => {
+		// On Windows npm is npm.cmd, which needs a shell; there the command goes as one string (DEP0190).
+		const command = 'npm pack --dry-run --json --workspace @yuridivonis/whoop-client';
+		const options: ExecFileSyncOptionsWithStringEncoding = { cwd: new URL('..', import.meta.url), encoding: 'utf8', timeout: 60_000, stdio: ['ignore', 'pipe', 'pipe'] };
+		const output = process.platform === 'win32' ? execFileSync(command, { ...options, shell: true }) : execFileSync('npm', command.split(' ').slice(1), options);
+		const [{ files }] = JSON.parse(output) as { files: { path: string }[] }[];
+		const paths = files.map(file => file.path);
+		for (const path of paths) {
+			assert.ok(
+				['package.json', 'README.md', 'LICENSE'].includes(path) ||
+					/^dist\/[\w./-]+\.(js|d\.ts|js\.map|d\.ts\.map)$/.test(path) ||
+					/^src\/[\w./-]+\.ts$/.test(path),
+				`${path} would be published`,
+			);
+		}
+		assert.ok(paths.includes('dist/index.js') && paths.includes('dist/index.d.ts'), 'the build is in it');
+	});
+
+	it('is used by the server through its name only, never a path into its source', () => {
+		const files = [
+			...readdirSync(new URL('../src/', import.meta.url), { recursive: true }).map(file => `src/${String(file)}`),
+			...readdirSync(new URL('./', import.meta.url), { recursive: true }).map(file => `test/${String(file)}`),
+		].filter(file => file.endsWith('.ts'));
+		for (const file of files) {
+			for (const [, specifier] of read(file).matchAll(/(?:from|import\s*\()\s*['"]([^'"]+)['"]/g)) {
+				if (!specifier.includes('packages/whoop-client')) continue;
+				assert.match(specifier, /^\.\.\/packages\/whoop-client\/test\/fake-whoop\.js$/, `${file} imports ${specifier}`);
+			}
+		}
 	});
 });

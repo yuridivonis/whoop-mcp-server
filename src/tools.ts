@@ -1,11 +1,19 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema, ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { WhoopAuthError, type Query, type WhoopClient } from './whoop-client.js';
+import {
+	WhoopAuthError,
+	WhoopError,
+	timeAsleepMilli,
+	type WhoopClient,
+	type WhoopQuery,
+	type WhoopScope,
+	type WhoopSleep,
+} from '@yuridivonis/whoop-client';
 import type { PendingAuthStates } from './auth-states.js';
 import type { UpdateChecker } from './updates.js';
 import { localDate, localTime, wakeDay } from './days.js';
-import type { WhoopSleep } from './types.js';
+import { whoopMessage } from './whoop-messages.js';
 
 export const SERVER_VERSION = '1.4.1';
 
@@ -53,7 +61,7 @@ function sportName(name: string | null, sportId: number): string {
 }
 
 // Only the data the tools use. `offline` keeps the connection alive with refresh tokens.
-const WHOOP_SCOPES = ['read:cycles', 'read:recovery', 'read:sleep', 'read:workout', 'offline'];
+const WHOOP_SCOPES: WhoopScope[] = ['read:cycles', 'read:recovery', 'read:sleep', 'read:workout', 'offline'];
 
 /** Sent to clients when they connect: how the tools fit together. */
 const SERVER_INSTRUCTIONS =
@@ -116,25 +124,13 @@ const CYCLE_LEAD_DAYS = 3;
  * cycle comes along, and every tool asking for the same days at the same moment makes
  * the same request, which the client then shares.
  */
-function period(days: number): { since: string; query: Query } {
+function period(days: number): { since: string; query: WhoopQuery } {
 	const since = new Date(Date.now() - days * DAY_MS).toISOString().slice(0, 10);
 	return { since, query: { start: new Date(Date.parse(since) - CYCLE_LEAD_DAYS * DAY_MS).toISOString() } };
 }
 
 function newestFirst(a: { start: string }, b: { start: string }): number {
 	return Date.parse(b.start) - Date.parse(a.start);
-}
-
-/**
- * Time asleep is the sum of the stages. In bed minus awake would also count the time the
- * strap recorded no data. Null when a stage is missing, rather than a partial total.
- */
-function timeAsleep(sleep: WhoopSleep): number | null {
-	const stages = sleep.score?.stage_summary;
-	const light = stages?.total_light_sleep_time_milli;
-	const deep = stages?.total_slow_wave_sleep_time_milli;
-	const rem = stages?.total_rem_sleep_time_milli;
-	return light == null || deep == null || rem == null ? null : light + deep + rem;
 }
 
 export function createMcpServer({ client, authStates, redirectUri, mode, updates }: ToolDeps): Server {
@@ -267,7 +263,7 @@ export function createMcpServer({ client, authStates, redirectUri, mode, updates
 						const score = sleep.score;
 						const stages = score?.stage_summary;
 						response += `## Last Night's Sleep\n`;
-						response += `- **Total Sleep**: ${formatDuration(timeAsleep(sleep))}\n`;
+						response += `- **Total Sleep**: ${formatDuration(timeAsleepMilli(sleep))}\n`;
 						response += `- **Performance**: ${score?.sleep_performance_percentage?.toFixed(0) ?? 'N/A'}%\n`;
 						response += `- **Efficiency**: ${score?.sleep_efficiency_percentage?.toFixed(0) ?? 'N/A'}%\n`;
 						response += `- **Stages**: Light ${formatDuration(stages?.total_light_sleep_time_milli)}, Deep ${formatDuration(stages?.total_slow_wave_sleep_time_milli)}, REM ${formatDuration(stages?.total_rem_sleep_time_milli)}\n`;
@@ -339,7 +335,7 @@ export function createMcpServer({ client, authStates, redirectUri, mode, updates
 						.flatMap(sleep => {
 							const performance = sleep.score?.sleep_performance_percentage;
 							if (sleep.nap || performance == null || sleep.start < since) return [];
-							const asleep = timeAsleep(sleep);
+							const asleep = timeAsleepMilli(sleep);
 							return [{
 								start: sleep.start,
 								date: wakeDay(sleep.start, sleep.timezone_offset),
@@ -450,7 +446,7 @@ export function createMcpServer({ client, authStates, redirectUri, mode, updates
 								'with the same DB_PATH, stop it, then restart this one (see "Running on Your Own Computer" in the README).'
 						);
 					}
-					const url = client.getAuthorizationUrl(WHOOP_SCOPES, authStates.issue());
+					const url = client.authorizationUrl({ scopes: WHOOP_SCOPES, state: authStates.issue() });
 					return text(
 						`To authorize with Whoop:\n\n1. Visit: ${url}\n2. Log in and authorize\n3. You'll be redirected back automatically\n\n` +
 							`The link works once and expires in 10 minutes.\n\nRedirect URI: ${redirectUri}`
@@ -463,9 +459,9 @@ export function createMcpServer({ client, authStates, redirectUri, mode, updates
 		} catch (error) {
 			// Not connected, or the authorization ended: the answer tells the agent what to do next.
 			if (error instanceof WhoopAuthError) {
-				return text(error.message);
+				return text(whoopMessage(error));
 			}
-			const message = error instanceof Error ? error.message : 'Unknown error';
+			const message = error instanceof WhoopError ? whoopMessage(error) : error instanceof Error ? error.message : 'Unknown error';
 			// There's no older copy to fall back on, so the operator's log gets the failure too.
 			if (!(error instanceof McpError)) {
 				process.stderr.write(`${name} failed: ${message}\n`);

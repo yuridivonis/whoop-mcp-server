@@ -1,6 +1,6 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { ConfigError, loadConfig, type Config } from './config.js';
-import { WhoopClient } from './whoop-client.js';
+import { WhoopClient } from '@yuridivonis/whoop-client';
 import { WhoopDatabase } from './database.js';
 import { PendingAuthStates } from './auth-states.js';
 import { createMcpServer, SERVER_VERSION } from './tools.js';

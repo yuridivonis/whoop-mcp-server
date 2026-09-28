@@ -1,18 +1,35 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { WhoopAuthError, WhoopClient, WhoopRateLimitError, WhoopRequestError, WhoopUnavailableError } from '../src/whoop-client.js';
-import type { StoredWhoopTokens, TokenStore } from '../src/types.js';
+import {
+	WhoopAuthError,
+	WhoopClient,
+	WhoopError,
+	WhoopProtocolError,
+	WhoopRateLimitError,
+	WhoopRequestError,
+	WhoopUnavailableError,
+	type StoredWhoopTokens,
+	type TokenStore,
+	type WhoopAuthReason,
+} from '../src/index.js';
 
 const TOKEN_URL = 'https://api.prod.whoop.com/oauth/oauth2/token';
 const HOUR = 60 * 60 * 1000;
 
-type ApiHandler = (url: URL, bearer: string) => Response | Promise<Response>;
+type ApiHandler = (url: URL, bearer: string, method: string) => Response | Promise<Response>;
 
 function json(body: unknown, status = 200): Response {
 	return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 }
 
 const empty = (): Response => json({ records: [] });
+/** WHOOP's answer to a revoke: 204, which must have no body. */
+const noContent = (): Response => new Response(null, { status: 204 });
+/** A successful answer to any API request: an empty page, or 204 for a revoke. */
+const ok = (method: string): Response => (method === 'DELETE' ? noContent() : empty());
+
+/** Rejects with a WhoopAuthError for this reason. */
+const authError = (reason: WhoopAuthReason) => (error: unknown) => error instanceof WhoopAuthError && error.reason === reason;
 
 /**
  * A fake WHOOP whose token endpoint rotates refresh tokens the way WHOOP does: each one
@@ -23,6 +40,8 @@ class FakeWhoop {
 	/** Every form sent to the token endpoint. */
 	readonly tokenCalls: URLSearchParams[] = [];
 	readonly apiCalls: URL[] = [];
+	/** The HTTP method of each API call. */
+	readonly apiMethods: string[] = [];
 	/** Spent refresh tokens that were presented again. */
 	readonly replays: string[] = [];
 	/** The HTTP status the token endpoint answers with, when not 200. */
@@ -33,11 +52,13 @@ class FakeWhoop {
 	tokenThrows?: Error;
 	/** How long the tokens it issues last, in seconds. */
 	expiresIn = 3600;
+	/** When set, replaces the token endpoint's body (200 or an error status), to test malformed answers. */
+	tokenBody?: string;
 	private readonly spent = new Set<string>();
 	private issued = 0;
 	private latestAccess = 'access-0';
 
-	constructor(private readonly api: ApiHandler = (_url, bearer) => (bearer === this.latestAccess ? empty() : json({}, 401))) {}
+	constructor(private readonly api: ApiHandler = (_url, bearer, method) => (bearer === this.latestAccess ? ok(method) : json({}, 401))) {}
 
 	readonly fetch: typeof fetch = async (input, init) => {
 		const url = new URL(input instanceof Request ? input.url : input);
@@ -47,6 +68,7 @@ class FakeWhoop {
 			// Keep the refresh in flight long enough for parallel callers to pile up.
 			await new Promise(resolve => setTimeout(resolve, 20));
 			if (this.tokenThrows) throw this.tokenThrows;
+			if (this.tokenBody !== undefined && this.tokenStatus !== 200) return new Response(this.tokenBody, { status: this.tokenStatus });
 			if (this.tokenStatus !== 200) return json({ error: this.tokenStatus < 500 ? this.tokenError : 'server_error' }, this.tokenStatus);
 			const presented = form.get('refresh_token');
 			if (presented !== null) {
@@ -58,20 +80,28 @@ class FakeWhoop {
 			}
 			this.issued++;
 			this.latestAccess = `access-${this.issued}`;
+			if (this.tokenBody !== undefined) return new Response(this.tokenBody, { headers: { 'Content-Type': 'application/json' } });
 			return json({ access_token: this.latestAccess, refresh_token: `refresh-${this.issued}`, expires_in: this.expiresIn });
 		}
 		this.apiCalls.push(url);
+		this.apiMethods.push(init?.method ?? 'GET');
 		const bearer = new Headers(init?.headers).get('authorization')?.replace('Bearer ', '') ?? '';
-		return this.api(url, bearer);
+		return this.api(url, bearer, init?.method ?? 'GET');
 	};
 }
 
-/** A store in memory, like one row in a database. Saves can be made to fail. */
+/** A store in memory, like one row in a database. Saves and clears can be made to fail. */
 class MemoryStore implements TokenStore {
 	tokens: StoredWhoopTokens | null;
 	readonly saves: StoredWhoopTokens[] = [];
 	/** How many of the next saves fail. */
 	failSaves = 0;
+	/** How many times clear() ran, and how many of the next ones fail. */
+	clears = 0;
+	failClears = 0;
+	/** Whether a lock is held right now, and whether clear() ran under one. */
+	private locked = false;
+	clearedUnderLock?: boolean;
 
 	constructor(tokens: StoredWhoopTokens | null) {
 		this.tokens = tokens;
@@ -88,6 +118,25 @@ class MemoryStore implements TokenStore {
 		}
 		this.tokens = { ...tokens };
 		this.saves.push({ ...tokens });
+	}
+
+	async clear(): Promise<void> {
+		if (this.failClears > 0) {
+			this.failClears--;
+			throw new Error('disk full');
+		}
+		this.clears++;
+		this.clearedUnderLock = this.locked;
+		this.tokens = null;
+	}
+
+	async withLock<T>(task: () => Promise<T>): Promise<T> {
+		this.locked = true;
+		try {
+			return await task();
+		} finally {
+			this.locked = false;
+		}
 	}
 }
 
@@ -136,7 +185,7 @@ describe('WhoopClient token refresh', () => {
 		whoop.tokenStatus = 400;
 		const client = newClient(whoop, new MemoryStore(tokens(HOUR)));
 
-		await assert.rejects(client.cycles(), /authorization expired\. Use the get_auth_url tool/);
+		await assert.rejects(client.cycles(), authError('authorization_ended'));
 	});
 
 	it('refreshes once when two clients sharing one store both get a 401', async () => {
@@ -236,7 +285,7 @@ describe('WhoopClient token refresh', () => {
 		const whoop = new FakeWhoop();
 		const store = new MemoryStore({ ...tokens(-1), refresh_started_at: Date.now() - 60_000 });
 
-		await assert.rejects(newClient(whoop, store).cycles(), /refresh didn't finish.*get_auth_url/);
+		await assert.rejects(newClient(whoop, store).cycles(), authError('refresh_interrupted'));
 		assert.equal(whoop.tokenCalls.length, 0);
 	});
 
@@ -246,8 +295,8 @@ describe('WhoopClient token refresh', () => {
 		const store = new MemoryStore(tokens(-1));
 		const client = newClient(whoop, store);
 
-		await assert.rejects(client.cycles(), /refresh didn't finish.*get_auth_url/);
-		await assert.rejects(client.cycles(), /refresh didn't finish/);
+		await assert.rejects(client.cycles(), authError('refresh_interrupted'));
+		await assert.rejects(client.cycles(), authError('refresh_interrupted'));
 		assert.equal(whoop.tokenCalls.length, 1, 'the possibly spent refresh token is presented only once');
 		assert.equal(typeof store.tokens?.refresh_started_at, 'number');
 	});
@@ -266,14 +315,14 @@ describe('WhoopClient token refresh', () => {
 		assert.equal(store.tokens?.refresh_token, 'refresh-1');
 	});
 
-	it('clears the mark when WHOOP refuses the app credentials, and says which settings to check', async () => {
+	it('clears the mark when WHOOP refuses the app credentials, and says which OAuth error it gave', async () => {
 		const whoop = new FakeWhoop();
 		whoop.tokenStatus = 401;
 		whoop.tokenError = 'invalid_client';
 		const store = new MemoryStore(tokens(-1));
 		const client = newClient(whoop, store);
 
-		await assert.rejects(client.cycles(), (error: unknown) => error instanceof WhoopRequestError && /WHOOP_CLIENT_SECRET/.test(error.message));
+		await assert.rejects(client.cycles(), (error: unknown) => error instanceof WhoopRequestError && error.oauthError === 'invalid_client' && !/WHOOP_CLIENT/.test(error.message));
 		assert.equal(store.tokens?.refresh_started_at, undefined);
 
 		// The operator fixes the secret: no reconnect needed.
@@ -301,7 +350,7 @@ describe('WhoopClient token refresh', () => {
 		whoop.tokenThrows = new TypeError('fetch failed', { cause: Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }) });
 		const store = new MemoryStore(tokens(-1));
 
-		await assert.rejects(newClient(whoop, store).cycles(), /refresh didn't finish/);
+		await assert.rejects(newClient(whoop, store).cycles(), authError('refresh_interrupted'));
 		assert.equal(typeof store.tokens?.refresh_started_at, 'number');
 	});
 
@@ -352,7 +401,7 @@ describe('WhoopClient token refresh', () => {
 
 		// Another process sharing the store must not present refresh-0: WHOOP has spent it.
 		const other = newClient(whoop, store);
-		await assert.rejects(other.cycles(), /refresh didn't finish/);
+		await assert.rejects(other.cycles(), authError('refresh_interrupted'));
 
 		// The client holding the new tokens saves them, which clears the mark, and carries on.
 		await client.cycles();
@@ -419,7 +468,7 @@ describe('WhoopClient token refresh', () => {
 		const client = newClient(whoop, store);
 		await client.cycles();
 
-		await client.exchangeCodeForTokens('code-from-whoop');
+		await client.connect('code-from-whoop');
 		assert.equal(whoop.tokenCalls[0].get('code'), 'code-from-whoop');
 		assert.deepEqual(store.tokens && { ...store.tokens, expires_at: 0 }, { access_token: 'access-1', refresh_token: 'refresh-1', expires_at: 0 });
 
@@ -436,10 +485,52 @@ describe('WhoopClient token refresh', () => {
 		await client.cycles();
 		store.failSaves = 2;
 
-		await assert.rejects(client.exchangeCodeForTokens('code-from-whoop'), /disk full/);
+		await assert.rejects(client.connect('code-from-whoop'), /disk full/);
 		await client.cycles();
 		assert.equal(whoop.tokenCalls.length, 1, 'only the code exchange');
 		assert.equal(store.tokens?.refresh_token, 'refresh-0');
+	});
+
+	it('never lets a slow first load overwrite a refresh that happened meanwhile on the same client', async () => {
+		// Nothing held yet, and the stored token has expired. cycles() loads, refreshes and saves;
+		// sleeps() started at the same time, but its load answers only after WHOOP has rotated the
+		// token, while the new tokens are still being saved. That stale load must not bring back
+		// refresh-0, which WHOOP has already spent.
+		const whoop = new FakeWhoop();
+		const store = new MemoryStore(tokens(-1));
+		const load = store.load.bind(store);
+		const save = store.save.bind(store);
+		// Staged: sleeps()'s first load answers only once the refreshed tokens start saving, and
+		// that save finishes only after it has answered. With the fix, that load waits for the
+		// lock instead, runs before the refresh, and would wait forever; a fallback timer far
+		// longer than the fake's 20 ms token delay lets it go on, and the save then doesn't wait.
+		let refreshedSaveStarted!: () => void;
+		const refreshedSaving = new Promise<void>(resolve => { refreshedSaveStarted = resolve; });
+		let staleLoadAnswered!: () => void;
+		const staleLoadDone = new Promise<void>(resolve => { staleLoadAnswered = resolve; });
+		let loads = 0;
+		store.load = async () => {
+			const loaded = await load();
+			if (++loads === 2) {
+				await Promise.race([refreshedSaving, new Promise(resolve => setTimeout(resolve, 250))]);
+				queueMicrotask(staleLoadAnswered);
+			}
+			return loaded;
+		};
+		store.save = async saved => {
+			if (saved.refresh_token === 'refresh-1') {
+				refreshedSaveStarted();
+				if (loads >= 2) await staleLoadDone;
+			}
+			return save(saved);
+		};
+		const client = newClient(whoop, store);
+
+		await Promise.all([client.cycles(), client.sleeps()]);
+
+		assert.deepEqual(whoop.replays, [], 'no spent refresh token is presented again');
+		assert.equal(whoop.tokenCalls.length, 1);
+		assert.equal(store.tokens?.refresh_token, 'refresh-1');
 	});
 
 	it("says WHOOP isn't connected without calling it, then picks up tokens saved later", async () => {
@@ -447,7 +538,7 @@ describe('WhoopClient token refresh', () => {
 		const store = new MemoryStore(null);
 		const client = newClient(whoop, store);
 
-		await assert.rejects(client.cycles(), /Not authenticated/);
+		await assert.rejects(client.cycles(), authError('not_connected'));
 		assert.equal(whoop.apiCalls.length, 0);
 
 		store.tokens = tokens(HOUR);
@@ -563,7 +654,7 @@ describe('WhoopClient pagination', () => {
 		const whoop = new FakeWhoop(() => json({ records: [], next_token: 'stuck' }));
 		const client = newClient(whoop, new MemoryStore(tokens(HOUR)));
 
-		await assert.rejects(client.workouts(), /same page cursor/);
+		await assert.rejects(client.workouts(), (error: unknown) => error instanceof WhoopProtocolError && /same page cursor/.test(error.message));
 		assert.equal(whoop.apiCalls.length, 2);
 	});
 
@@ -572,7 +663,7 @@ describe('WhoopClient pagination', () => {
 		const whoop = new FakeWhoop(() => json({ records: [], next_token: `page-${++page}` }));
 		const client = newClient(whoop, new MemoryStore(tokens(HOUR)));
 
-		await assert.rejects(client.cycles(), /after 100 pages/);
+		await assert.rejects(client.cycles(), (error: unknown) => error instanceof WhoopProtocolError && /after 100 pages/.test(error.message));
 		assert.equal(whoop.apiCalls.length, 100);
 	});
 });
@@ -580,8 +671,317 @@ describe('WhoopClient pagination', () => {
 describe('WhoopClient authorization URL', () => {
 	it('carries the state it was given', () => {
 		const client = newClient(new FakeWhoop(), new MemoryStore(null));
-		const url = new URL(client.getAuthorizationUrl(['read:sleep'], 'issued-state'));
+		const url = new URL(client.authorizationUrl({ scopes: ['read:sleep', 'offline'], state: 'issued-state' }));
 		assert.equal(url.searchParams.get('state'), 'issued-state');
 		assert.equal(url.searchParams.get('redirect_uri'), 'http://localhost:3000/callback');
+	});
+});
+
+describe('WhoopClient revokeAccess', () => {
+	/** Revoked, cleared exactly once under the lock, and a later call says not connected. */
+	async function assertRevoked(client: WhoopClient, store: MemoryStore): Promise<void> {
+		assert.equal(store.clears, 1);
+		assert.equal(store.clearedUnderLock, true);
+		assert.equal(store.tokens, null);
+		await assert.rejects(client.cycles(), authError('not_connected'));
+	}
+
+	it('revokes on first use, clears the store and forgets the tokens', async () => {
+		const whoop = new FakeWhoop();
+		const store = new MemoryStore(tokens(HOUR));
+		const client = newClient(whoop, store);
+
+		await client.revokeAccess();
+		assert.deepEqual(whoop.apiMethods, ['DELETE']);
+		assert.equal(whoop.apiCalls[0].pathname, '/developer/v2/user/access');
+		await assertRevoked(client, store);
+	});
+
+	it('clears the grant it refreshed on the way, after a 401', async () => {
+		// access-0 is refused; the refresh issues access-1, which the DELETE carries.
+		const whoop = new FakeWhoop((_url, bearer, method) => (bearer === 'access-1' ? ok(method) : json({}, 401)));
+		const store = new MemoryStore(tokens(HOUR));
+		const client = newClient(whoop, store);
+
+		await client.revokeAccess();
+		assert.equal(whoop.tokenCalls.length, 1);
+		await assertRevoked(client, store);
+	});
+
+	it('clears the grant it refreshed first, when the token was about to expire', async () => {
+		const whoop = new FakeWhoop();
+		const store = new MemoryStore(tokens(60_000));
+		const client = newClient(whoop, store);
+
+		await client.revokeAccess();
+		assert.equal(whoop.tokenCalls.length, 1);
+		await assertRevoked(client, store);
+	});
+
+	it('counts an authorization WHOOP already ended as revoked, when the refresh is refused', async () => {
+		const whoop = new FakeWhoop();
+		whoop.tokenStatus = 400; // invalid_grant
+		const store = new MemoryStore(tokens(-1)); // expired, so it must refresh before sending
+		const client = newClient(whoop, store);
+
+		await client.revokeAccess();
+		assert.equal(whoop.apiCalls.length, 0);
+		await assertRevoked(client, store);
+	});
+
+	it('counts an authorization WHOOP already ended as revoked, when the retry gets a 401 too', async () => {
+		const whoop = new FakeWhoop(() => json({}, 401));
+		const store = new MemoryStore(tokens(HOUR));
+		const client = newClient(whoop, store);
+
+		await client.revokeAccess();
+		assert.equal(whoop.apiCalls.length, 2);
+		await assertRevoked(client, store);
+	});
+
+	it("clears nothing when WHOOP's refusal can't be read, since the grant may still be live", async () => {
+		// A 401 with an HTML body (a proxy, say) is classed as the authorization ending for reads,
+		// but a revoke mustn't forget tokens on that evidence alone: no DELETE was ever sent.
+		const whoop = new FakeWhoop();
+		whoop.tokenStatus = 401;
+		whoop.tokenBody = '<html>maintenance</html>';
+		const store = new MemoryStore(tokens(-1));
+		const client = newClient(whoop, store);
+
+		await assert.rejects(client.revokeAccess(), (error: unknown) => authError('authorization_ended')(error) && (error as WhoopAuthError).oauthError === undefined);
+		assert.equal(whoop.apiCalls.length, 0);
+		assert.equal(store.clears, 0);
+		assert.equal(store.tokens?.refresh_token, 'refresh-0');
+	});
+
+	it("asks to reconnect, and clears nothing, when the grant is gone but the token hadn't expired", async () => {
+		// The proactive refresh is refused, which leaves the mark; the DELETE then gets a 401.
+		const whoop = new FakeWhoop(() => json({}, 401));
+		whoop.tokenStatus = 400;
+		const store = new MemoryStore(tokens(60_000));
+		const client = newClient(whoop, store);
+
+		await assert.rejects(client.revokeAccess(), authError('refresh_interrupted'));
+		assert.equal(store.clears, 0);
+	});
+
+	it('clears nothing, and keeps the tokens, when WHOOP is rate limited or unavailable', async () => {
+		for (const status of [429, 503]) {
+			const whoop = new FakeWhoop((_url, _bearer, method) => (method === 'DELETE' ? json({}, status) : empty()));
+			const store = new MemoryStore(tokens(HOUR));
+			const client = newClient(whoop, store);
+
+			await assert.rejects(client.revokeAccess(), status === 429 ? WhoopRateLimitError : WhoopUnavailableError);
+			assert.equal(store.clears, 0);
+			assert.equal(store.tokens?.refresh_token, 'refresh-0');
+			await client.cycles(); // still connected
+		}
+	});
+
+	it("says it isn't connected when there's nothing to revoke", async () => {
+		const whoop = new FakeWhoop();
+		const store = new MemoryStore(null);
+
+		await assert.rejects(newClient(whoop, store).revokeAccess(), authError('not_connected'));
+		assert.equal(whoop.apiCalls.length, 0);
+		assert.equal(store.clears, 0);
+	});
+
+	it("forgets the tokens even when the store can't clear them, and says so", async () => {
+		const whoop = new FakeWhoop();
+		const store = new MemoryStore(tokens(HOUR));
+		store.failClears = 2;
+		const client = newClient(whoop, store);
+
+		await assert.rejects(client.revokeAccess(), /disk full/);
+		assert.equal(store.tokens?.refresh_token, 'refresh-0', 'the store kept them');
+		// The client dropped its copy: with the store emptied, it has nothing left to send.
+		store.tokens = null;
+		await assert.rejects(client.cycles(), authError('not_connected'));
+		assert.deepEqual(whoop.apiMethods, ['DELETE']);
+	});
+
+	it('retries a failed clear once', async () => {
+		const whoop = new FakeWhoop();
+		const store = new MemoryStore(tokens(HOUR));
+		store.failClears = 1;
+		const client = newClient(whoop, store);
+
+		await client.revokeAccess();
+		await assertRevoked(client, store);
+	});
+
+	it('works with a store that has no clear(): the client forgets, the store keeps a revoked copy', async () => {
+		const whoop = new FakeWhoop();
+		const row: { tokens: StoredWhoopTokens | null } = { tokens: tokens(HOUR) };
+		const store: TokenStore = { load: async () => row.tokens && { ...row.tokens }, save: async saved => { row.tokens = { ...saved }; } };
+		const client = newClient(whoop, store);
+
+		await client.revokeAccess();
+		assert.equal(row.tokens?.refresh_token, 'refresh-0');
+	});
+
+	it('drops the body of a revoke answered 200 with one, as for 204', async () => {
+		const whoop = new FakeWhoop((_url, _bearer, method) => (method === 'DELETE' ? json({ revoked: true }) : empty()));
+		const store = new MemoryStore(tokens(HOUR));
+		const client = newClient(whoop, store);
+
+		await client.revokeAccess();
+		await assertRevoked(client, store);
+	});
+
+	it('keeps a reconnect made on another client while the revoke was in flight', async () => {
+		let release!: () => void;
+		const held = new Promise<void>(resolve => { release = resolve; });
+		const whoop = new FakeWhoop(async (_url, _bearer, method) => {
+			if (method === 'DELETE') await held;
+			return ok(method);
+		});
+		const store = new MemoryStore(tokens(HOUR));
+		const revoking = newClient(whoop, store);
+		const other = newClient(whoop, store);
+
+		const revoke = revoking.revokeAccess();
+		await new Promise(resolve => setTimeout(resolve, 10)); // the DELETE is in flight
+		await other.connect('code-from-whoop');
+		release();
+		await revoke;
+
+		assert.equal(store.clears, 0, 'the new authorization is kept');
+		assert.equal(store.tokens?.refresh_token, 'refresh-1');
+		await revoking.cycles();
+		assert.equal(whoop.apiCalls.at(-1)?.pathname, '/developer/v2/cycle');
+	});
+
+	it('keeps a reconnect made on the same client while the revoke was in flight', async () => {
+		let release!: () => void;
+		const held = new Promise<void>(resolve => { release = resolve; });
+		// WHOOP still accepts the old token for the DELETE, which is in flight while the user reconnects.
+		const whoop = new FakeWhoop(async (_url, _bearer, method) => {
+			if (method === 'DELETE') await held;
+			return ok(method);
+		});
+		const store = new MemoryStore(tokens(HOUR));
+		const client = newClient(whoop, store);
+
+		const revoke = client.revokeAccess();
+		await new Promise(resolve => setTimeout(resolve, 10));
+		await client.connect('code-from-whoop');
+		release();
+		await revoke;
+
+		assert.equal(store.clears, 0, 'the reconnect is not the grant that was revoked');
+		assert.equal(store.tokens?.refresh_token, 'refresh-1');
+		await client.cycles();
+		assert.deepEqual(whoop.apiMethods, ['DELETE', 'GET'], 'still connected, with the new authorization');
+	});
+});
+
+describe('WhoopClient token responses', () => {
+	const malformed: [string, string][] = [
+		['no access token', JSON.stringify({ refresh_token: 'r', expires_in: 3600 })],
+		['an empty refresh token', JSON.stringify({ access_token: 'a', refresh_token: '', expires_in: 3600 })],
+		['expires_in as text', JSON.stringify({ access_token: 'a', refresh_token: 'r', expires_in: '3600' })],
+		['a zero expires_in', JSON.stringify({ access_token: 'a', refresh_token: 'r', expires_in: 0 })],
+		['a body that is not JSON', 'access_token=a&refresh_token=r'],
+	];
+
+	for (const [what, body] of malformed) {
+		it(`refuses ${what} on connect, and saves nothing`, async () => {
+			const whoop = new FakeWhoop();
+			whoop.tokenBody = body;
+			const store = new MemoryStore(null);
+
+			await assert.rejects(newClient(whoop, store).connect('code'), WhoopProtocolError);
+			assert.equal(store.saves.length, 0);
+		});
+
+		it(`keeps the mark and asks to reconnect for ${what} on a refresh`, async () => {
+			const whoop = new FakeWhoop();
+			whoop.tokenBody = body;
+			const store = new MemoryStore(tokens(-1));
+
+			await assert.rejects(
+				newClient(whoop, store).cycles(),
+				(error: unknown) => error instanceof WhoopAuthError && error.reason === 'refresh_interrupted' && error.cause instanceof WhoopProtocolError,
+			);
+			assert.equal(typeof store.tokens?.refresh_started_at, 'number');
+			assert.equal(store.tokens?.refresh_token, 'refresh-0');
+		});
+	}
+
+	it("names the 'offline' scope when WHOOP returns no refresh token", async () => {
+		const whoop = new FakeWhoop();
+		whoop.tokenBody = JSON.stringify({ access_token: 'a', expires_in: 3600 });
+
+		await assert.rejects(newClient(whoop, new MemoryStore(null)).connect('code'), /'offline' scope/);
+	});
+});
+
+describe('WhoopClient argument checks', () => {
+	const noRedirect = (whoop: FakeWhoop) =>
+		new WhoopClient({ clientId: 'client-id', clientSecret: 'client-secret', store: new MemoryStore(null), fetch: whoop.fetch });
+
+	it('needs redirectUri to build a sign-in link or connect, and says so before calling WHOOP', async () => {
+		const whoop = new FakeWhoop();
+		assert.throws(() => noRedirect(whoop).authorizationUrl({ scopes: ['offline'], state: 'long-enough' }), TypeError);
+		await assert.rejects(noRedirect(whoop).connect('code'), TypeError);
+		assert.equal(whoop.tokenCalls.length, 0);
+	});
+
+	it("needs the 'offline' scope, and a state of at least 8 characters", () => {
+		const client = newClient(new FakeWhoop(), new MemoryStore(null));
+		assert.throws(() => client.authorizationUrl({ scopes: ['read:sleep'], state: 'long-enough' }), /'offline'/);
+		assert.throws(() => client.authorizationUrl({ scopes: ['offline'], state: '1234567' }), /at least 8/);
+		assert.doesNotThrow(() => client.authorizationUrl({ scopes: ['offline'], state: '12345678' }));
+		assert.doesNotThrow(() => client.authorizationUrl({ scopes: ['offline', 'read:some_future_scope'], state: '12345678' }));
+	});
+});
+
+describe('WhoopClient error details', () => {
+	it("reads the rate limit's reset time when WHOOP sends a usable one", async () => {
+		const limited = (reset: string | null) => newClient(
+			new FakeWhoop(() => new Response('{}', { status: 429, headers: reset === null ? {} : { 'X-RateLimit-Reset': reset } })),
+			new MemoryStore(tokens(HOUR)),
+		);
+		for (const [reset, expected] of [['42', 42], ['0', 0], [null, undefined], ['', undefined], ['soon', undefined], ['-5', undefined]] as const) {
+			await assert.rejects(limited(reset).cycles(), (error: unknown) => error instanceof WhoopRateLimitError && error.resetSeconds === expected);
+		}
+	});
+
+	it('gives every error class a stable name', () => {
+		assert.equal(new WhoopError('x').name, 'WhoopError');
+		assert.equal(new WhoopAuthError('not_connected').name, 'WhoopAuthError');
+		assert.equal(new WhoopRateLimitError().name, 'WhoopRateLimitError');
+		assert.equal(new WhoopUnavailableError('x').name, 'WhoopUnavailableError');
+		assert.equal(new WhoopRequestError('x', 404).name, 'WhoopRequestError');
+		assert.equal(new WhoopProtocolError('x').name, 'WhoopProtocolError');
+	});
+
+	it('gives each authorization failure a reason and a neutral message', () => {
+		for (const reason of ['not_connected', 'refresh_interrupted', 'authorization_ended'] as const) {
+			const error = new WhoopAuthError(reason);
+			assert.equal(error.reason, reason);
+			assert.doesNotMatch(error.message, /get_auth_url|WHOOP_CLIENT/);
+		}
+	});
+
+	it('uses the configured timeout', async () => {
+		const client = new WhoopClient({
+			clientId: 'client-id',
+			clientSecret: 'client-secret',
+			store: new MemoryStore(tokens(HOUR)),
+			timeoutMs: 20,
+			fetch: (_input, init) => new Promise((_resolve, reject) => {
+				// AbortSignal.timeout's own timer doesn't keep the event loop alive (Node 22 then ends
+				// the test with the promise pending), so hold a real timer until the abort fires.
+				const keepAlive = setTimeout(() => reject(new Error('the timeout never fired')), 5_000);
+				init?.signal?.addEventListener('abort', () => {
+					clearTimeout(keepAlive);
+					reject(init.signal?.reason);
+				});
+			}),
+		});
+		await assert.rejects(client.cycles(), (error: unknown) => error instanceof WhoopUnavailableError && /within 0\.02 seconds/.test(error.message));
 	});
 });

@@ -23,15 +23,20 @@
   ],
   "type": "module",
   "main": "dist/index.js",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -b",
+    "build:client": "tsc -b packages/whoop-client",
     "start": "node dist/index.js",
-    "dev": "tsx watch --env-file=.env src/index.ts",
-    "test": "node --import tsx --test test/*.test.ts",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p test/tsconfig.json"
+    "dev": "npm run build:client && tsx watch --env-file=.env src/index.ts",
+    "test": "npm run build:client && node --import tsx --test test/*.test.ts packages/whoop-client/test/*.test.ts",
+    "typecheck": "tsc -b && tsc --noEmit -p test/tsconfig.json && tsc --noEmit -p packages/whoop-client/test/tsconfig.json"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
+    "@yuridivonis/whoop-client": "0.0.0",
     "better-sqlite3": "^13.0.3",
     "express": "^4.21.0",
     "express-rate-limit": "^8.7.0"

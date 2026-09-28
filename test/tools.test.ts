@@ -11,9 +11,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { PendingAuthStates } from '../src/auth-states.js';
 import { createMcpServer } from '../src/tools.js';
-import { WhoopClient } from '../src/whoop-client.js';
-import type { WhoopCycle, WhoopRecovery, WhoopSleep, WhoopWorkout } from '../src/types.js';
-import { FakeWhoop } from './fake-whoop.js';
+import { WhoopClient, type StoredWhoopTokens, type WhoopCycle, type WhoopRecovery, type WhoopSleep, type WhoopWorkout } from '@yuridivonis/whoop-client';
+import { FakeWhoop } from '../packages/whoop-client/test/fake-whoop.js';
 import { memoryDb, mcpRequest, readRpc, signIn, startTestServer, type TestServer } from './helpers.js';
 
 const HOUR = 60 * 60 * 1000;
@@ -41,9 +40,13 @@ interface Connected {
 }
 
 /** An MCP client connected to the tools, with a fake WHOOP behind them. */
-async function connect(t: TestContext, { connected = true, mode = 'http' }: { connected?: boolean; mode?: 'http' | 'stdio' } = {}): Promise<Connected> {
+async function connect(
+	t: TestContext,
+	{ connected = true, mode = 'http', tokens }: { connected?: boolean; mode?: 'http' | 'stdio'; tokens?: StoredWhoopTokens } = {},
+): Promise<Connected> {
 	const db = memoryDb(t);
-	if (connected) db.saveTokens({ access_token: 'whoop-access', refresh_token: 'whoop-refresh', expires_at: Date.now() + HOUR });
+	if (tokens) db.saveTokens(tokens);
+	else if (connected) db.saveTokens({ access_token: 'whoop-access', refresh_token: 'whoop-refresh', expires_at: Date.now() + HOUR });
 	const whoop = new FakeWhoop();
 	const server = createMcpServer({
 		client: new WhoopClient({ clientId: 'id', clientSecret: 'secret', redirectUri: 'http://localhost:3000/callback', store: db.whoopTokens, fetch: whoop.fetch }),
@@ -415,6 +418,28 @@ describe('live data', () => {
 		assert.match(reply.text, /Not authenticated with Whoop\. Use the get_auth_url tool/);
 		assert.equal(reply.isError, false, 'guidance for the agent, not a failure');
 		assert.equal(whoop.requests.length, 0);
+	});
+
+	it('asks to reconnect, without calling WHOOP, when an earlier token refresh never finished', async t => {
+		const { whoop, call } = await connect(t, {
+			tokens: { access_token: 'whoop-access', refresh_token: 'whoop-refresh', expires_at: Date.now() - HOUR, refresh_started_at: Date.now() - HOUR },
+		});
+		const reply = await call('get_today');
+		assert.equal(
+			reply.text,
+			"A WHOOP token refresh didn't finish, so WHOOP may have replaced the token without this server getting the new one. Use the get_auth_url tool to reconnect.",
+		);
+		assert.equal(reply.isError, false, 'guidance for the agent, not a failure');
+		assert.equal(whoop.requests.length, 0);
+	});
+
+	it('asks to reconnect when WHOOP keeps refusing the tokens after a refresh', async t => {
+		const { whoop, call } = await connect(t);
+		whoop.failWith = 401;
+		const reply = await call('get_workouts');
+		assert.equal(reply.text, 'Whoop authorization expired. Use the get_auth_url tool to reconnect.');
+		assert.equal(reply.isError, false);
+		assert.equal(whoop.requests.length, 2, 'one retry after the refresh, never more');
 	});
 
 	it('says WHOOP is unavailable instead of showing older data, and logs it', async t => {

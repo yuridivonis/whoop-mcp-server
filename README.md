@@ -191,6 +191,8 @@ npm test
 npm run typecheck
 ```
 
+The repository is an npm workspace: the server in `src/`, and the WHOOP API client it's built on in `packages/whoop-client`, a library you can also use on its own. `npm install` links the two, and `npm test`, `npm run typecheck`, `npm run build` and `npm run dev` build the library first. When you're changing the library itself, `npx tsc -b -w packages/whoop-client` rebuilds it as you go.
+
 Whoop's redirect URLs must be `https` (or an app scheme), so a server on your computer needs an https tunnel, for example `cloudflared tunnel --url http://localhost:3000` or `ngrok http 3000`. Then:
 
 1. Set `WHOOP_REDIRECT_URI` to the tunnel's `/callback` address.
@@ -244,8 +246,8 @@ To run your own changes, fork this repository and deploy the fork instead of the
 │  └──────┬──────┘               ▲                │
 │         ▼                      │                │
 │  ┌─────────────┐               │                │
-│  │ Whoop API   │─── tokens ────┘                │
-│  │ Client      │   (no health data is stored)   │
+│  │ whoop-client│─── tokens ────┘                │
+│  │ (library)   │   (no health data is stored)   │
 │  └─────────────┘                                │
 └─────────┬───────────────────────────────────────┘
           │  Whoop OAuth + API v2, live on every call
@@ -254,6 +256,8 @@ To run your own changes, fork this repository and deploy the fork instead of the
 │  Whoop API                                      │
 └─────────────────────────────────────────────────┘
 ```
+
+The server talks to WHOOP through `whoop-client`, in [packages/whoop-client](packages/whoop-client): the same small, typed library anyone can use to build on WHOOP data, with the sign-in and token refresh handled. It isn't published to npm yet.
 
 ## Whoop API Endpoints Used
 
@@ -266,11 +270,12 @@ To run your own changes, fork this repository and deploy the fork instead of the
 
 Issues and pull requests are welcome. Every change goes through a pull request, and can merge only once CI passes and the maintainer has reviewed it.
 
-- **Tests come with changes.** A new feature or bug fix adds tests for it to the automated suite in `test/`. Before opening a pull request, run `npm test` and `npm run typecheck`. Every pull request runs both in CI, along with a Docker smoke test, and a CodeQL scan.
-- **Code style:** TypeScript in strict mode, as in `src/` and `test/`, written like the code around it. No new dependency without a reason in the pull request.
+- **Tests come with changes.** A new feature or bug fix adds tests for it to the automated suite: the server's in `test/`, the WHOOP client's in `packages/whoop-client/test/`. Before opening a pull request, run `npm test` and `npm run typecheck`. Every pull request runs both in CI, along with a Docker smoke test, and a CodeQL scan.
+- **Code style:** TypeScript in strict mode, as in `src/`, `packages/whoop-client/src/` and the tests, written like the code around it. No new dependency without a reason in the pull request.
+- **The server uses the WHOOP client by its package name,** `@yuridivonis/whoop-client`, never by a path into `packages/whoop-client/src`: a second copy of the library would break `instanceof` checks on its errors. The one exception is the tests' fake WHOOP, imported from `packages/whoop-client/test/`.
 - **Security issues:** report them privately, as [SECURITY.md](SECURITY.md) describes, not in an issue.
 
-**Synthetic data only.** The tests run against a fake Whoop API that serves made-up records ([test/fake-whoop.ts](test/fake-whoop.ts)), and future evaluations will too. Never put real Whoop data, yours or anyone else's, in tests, fixtures, issues or pull requests: WHOOP's terms forbid using it to test AI systems, and it's personal health data.
+**Synthetic data only.** The tests run against a fake Whoop API that serves made-up records ([packages/whoop-client/test/fake-whoop.ts](packages/whoop-client/test/fake-whoop.ts)), and future evaluations will too. Never put real Whoop data, yours or anyone else's, in tests, fixtures, issues or pull requests: WHOOP's terms forbid using it to test AI systems, and it's personal health data.
 
 ## Changelog
 

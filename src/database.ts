@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { encrypt, decrypt, isEncrypted } from './crypto.js';
-import type { StoredWhoopTokens, TokenStore, DbOAuthCode, DbOAuthToken } from './types.js';
+import type { StoredWhoopTokens, TokenStore } from '@yuridivonis/whoop-client';
+import type { DbOAuthCode, DbOAuthToken } from './types.js';
 
 interface TokenRow {
 	id: number;

@@ -973,7 +973,13 @@ describe('WhoopClient error details', () => {
 			store: new MemoryStore(tokens(HOUR)),
 			timeoutMs: 20,
 			fetch: (_input, init) => new Promise((_resolve, reject) => {
-				init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+				// AbortSignal.timeout's own timer doesn't keep the event loop alive (Node 22 then ends
+				// the test with the promise pending), so hold a real timer until the abort fires.
+				const keepAlive = setTimeout(() => reject(new Error('the timeout never fired')), 5_000);
+				init?.signal?.addEventListener('abort', () => {
+					clearTimeout(keepAlive);
+					reject(init.signal?.reason);
+				});
 			}),
 		});
 		await assert.rejects(client.cycles(), (error: unknown) => error instanceof WhoopUnavailableError && /within 0\.02 seconds/.test(error.message));

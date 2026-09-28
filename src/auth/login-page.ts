@@ -99,14 +99,15 @@ export function page(title: string, body: string): string {
   input:focus-visible, button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
   footer { border-top: 1px solid var(--border); margin-top: 28px; padding-top: 18px; color: var(--faint); font-size: 0.78rem; line-height: 1.5; }
   footer p + p { margin-top: 6px; }
-  h2 { font-size: 1rem; font-weight: 700; margin: 22px 0 8px; }
-  main p, main ul { font-size: 0.92rem; line-height: 1.5; margin-bottom: 10px; overflow-wrap: anywhere; }
-  main ul { padding-left: 20px; }
-  main li + li { margin-top: 4px; }
-  main code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; background: var(--accent-soft); color: var(--accent-strong); border-radius: 6px; padding: 2px 6px; }
-  .box code { display: block; padding: 10px 12px; font-size: 0.88rem; }
-  .note { color: var(--muted); font-size: 0.85rem; }
-  a { color: var(--accent-strong); }
+  /* The set-up page only (.setup), so the sign-in page keeps its own sizes. */
+  .setup h2 { font-size: 1rem; font-weight: 700; margin: 22px 0 8px; }
+  .setup p, .setup ul { font-size: 0.92rem; line-height: 1.5; margin-bottom: 10px; overflow-wrap: anywhere; }
+  .setup ul { padding-left: 20px; }
+  .setup li + li { margin-top: 4px; }
+  .setup code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; background: var(--accent-soft); color: var(--accent-strong); border-radius: 6px; padding: 2px 6px; }
+  .setup .box code { display: block; padding: 10px 12px; font-size: 0.88rem; }
+  .setup .note { color: var(--muted); font-size: 0.85rem; }
+  .setup a, footer a { color: var(--accent-strong); }
   @media (max-width: 480px) {
     body { padding: 12px; place-items: start center; }
     main { padding: 24px 20px; border-radius: 16px; }

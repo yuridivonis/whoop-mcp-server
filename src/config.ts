@@ -70,7 +70,7 @@ function parseRedirectHosts(env: NodeJS.ProcessEnv): string[] {
  * The WHOOP callback address when WHOOP_REDIRECT_URI isn't set: PUBLIC_URL's, else the
  * Railway domain's, else this computer's. So a Railway deploy never has to type it.
  */
-function defaultRedirectUri(env: NodeJS.ProcessEnv): string {
+function defaultRedirectUri(env: NodeJS.ProcessEnv, mode: 'http' | 'stdio'): string {
 	if (env.PUBLIC_URL) {
 		try {
 			return new URL('/callback', new URL(env.PUBLIC_URL).origin).href;
@@ -79,7 +79,8 @@ function defaultRedirectUri(env: NodeJS.ProcessEnv): string {
 		}
 	}
 	const domain = env.RAILWAY_PUBLIC_DOMAIN?.trim().toLowerCase();
-	if (domain) {
+	// A stdio server has no public address, so a domain it can't use doesn't stop it.
+	if (domain && mode === 'http') {
 		if (!HOST_NAME.test(domain)) {
 			throw new ConfigError(`RAILWAY_PUBLIC_DOMAIN isn't a host name (got "${domain}"). Set WHOOP_REDIRECT_URI instead.`);
 		}
@@ -90,7 +91,7 @@ function defaultRedirectUri(env: NodeJS.ProcessEnv): string {
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 	const mode = env.MCP_MODE === 'stdio' ? 'stdio' : 'http';
-	const redirectUri = env.WHOOP_REDIRECT_URI ?? defaultRedirectUri(env);
+	const redirectUri = env.WHOOP_REDIRECT_URI ?? defaultRedirectUri(env, mode);
 	const authPassword = env.MCP_AUTH_PASSWORD ?? '';
 	const whoopConfigured = (env.WHOOP_CLIENT_ID ?? '').trim() !== '' && (env.WHOOP_CLIENT_SECRET ?? '').trim() !== '';
 

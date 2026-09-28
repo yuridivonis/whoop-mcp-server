@@ -117,6 +117,7 @@ describe('the WHOOP callback address, when WHOOP_REDIRECT_URI is not set', () =>
 
 	it('does not apply the http-mode guards in stdio mode', () => {
 		assert.equal(loadConfig({ MCP_MODE: 'stdio', RAILWAY_ENVIRONMENT_ID: 'env-123' }).mode, 'stdio');
+		assert.equal(loadConfig({ MCP_MODE: 'stdio', RAILWAY_ENVIRONMENT_ID: 'env-123', RAILWAY_PUBLIC_DOMAIN: 'not a host' }).mode, 'stdio');
 	});
 });
 

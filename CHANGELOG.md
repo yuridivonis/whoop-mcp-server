@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [1.4.2] - 2026-09-28
 
-Setting up is shorter: the server works out its own addresses, and a page at its root shows what's left to do. Nothing to do when upgrading: redeploy, or let Railway's auto updates do it.
+Setting up is shorter: the server works out its own addresses, and a page at its root shows what's left to do. Nothing to do when upgrading: redeploy, or let Railway's auto updates do it. If you deployed a pinned tag such as `:1.4.1` following an earlier README, change the Service Source to `:1` once, so future releases reach you.
 
 ### Added
 
@@ -15,9 +15,13 @@ Setting up is shorter: the server works out its own addresses, and a page at its
 ### Changed
 
 - **Deploy the `:1` tag:** the README now deploys `ghcr.io/yuridivonis/whoop-mcp-server:1` everywhere. Railway documents that it redeploys a service whenever a new image is pushed to its tag, once auto updates are switched on for the service, and this project moves `:1` with every 1.x release. (#29)
-- **The WHOOP client is its own package,** `packages/whoop-client`, built on by the server and to be published to npm later. A race in the token refresh is fixed with it: two different requests starting on a fresh client could present a spent refresh token, which can end the Whoop authorization. Practically unreachable with this server's database, but real with a slower one. (#28)
+- **The WHOOP client is its own package,** `packages/whoop-client`, built on by the server and to be published to npm later. (#28)
 - **Dependabot** no longer proposes new major versions of `@types/node`, TypeScript or Express; each moves in a pull request of its own. (#25)
 - **OpenSSF Best Practices:** the project holds the passing badge, and the README's Contributing section states the test policy and what a change needs. (#26)
+
+### Fixed
+
+- **A race in the token refresh:** two different requests starting on a fresh client could present a spent refresh token, which can end the Whoop authorization. Practically unreachable with this server's database, but real with a slower one. (#28)
 
 ## [1.4.1] - 2026-09-27
 

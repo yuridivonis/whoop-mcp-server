@@ -9,7 +9,8 @@ function assertRevealsNothing(body: string): void {
 		assert.ok(!body.includes(secret), `the page must not show ${secret}`);
 	}
 	assert.doesNotMatch(body, /connected/i, 'the page says nothing about the WHOOP connection');
-	assert.doesNotMatch(body, /RAILWAY/, 'the page says nothing about where the server is hosted');
+	// It names Railway in its instructions for everyone; it must not name or branch on Railway's variables.
+	assert.doesNotMatch(body, /RAILWAY/, "the page doesn't reveal which host's variables the server sees");
 }
 
 async function page(server: TestServer): Promise<{ res: Response; body: string }> {
@@ -53,7 +54,7 @@ describe('the set-up page, once the WHOOP app is configured', () => {
 		assert.ok(body.includes('<meta name="robots" content="noindex">'));
 	});
 
-	it('reveals no secret, no version, no connection state, and nothing about the host', async () => {
+	it('reveals no secret, no version, no connection state, and nothing server-specific about hosting', async () => {
 		assertRevealsNothing((await page(server)).body);
 	});
 
@@ -99,7 +100,7 @@ describe("the set-up page, before the WHOOP app is configured", () => {
 		assert.ok(!body.includes('Configure Auto Updates'));
 	});
 
-	it('reveals no secret, no version, no connection state, and nothing about the host', async () => {
+	it('reveals no secret, no version, no connection state, and nothing server-specific about hosting', async () => {
 		assertRevealsNothing((await page(server)).body);
 	});
 });

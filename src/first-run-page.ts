@@ -46,11 +46,13 @@ export function renderFirstRunPage(config: Pick<Config, 'redirectUri' | 'publicU
   <h2>Step 2 of 2: give this server the app's keys</h2>
   <p>Paste the app's Client ID and Client Secret into the <code>WHOOP_CLIENT_ID</code> and <code>WHOOP_CLIENT_SECRET</code> variables. On Railway that's the service's <strong>Variables</strong> tab: save them and deploy the change. Elsewhere, set them where you set <code>MCP_AUTH_PASSWORD</code> and restart. This page then shows the next step.</p>`;
 
-	return page('Set-up', `  <h1>${config.whoopConfigured ? 'Your server is ready' : 'Set up your server'}</h1>
+	return page('Set-up', `  <div class="setup">
+  <h1>${config.whoopConfigured ? 'Your server is ready' : 'Set up your server'}</h1>
   <p class="lede">This server is running${config.whoopConfigured ? '' : '. Two steps left'}.</p>
   <h2>Your WHOOP app's Redirect URL</h2>
   <p class="box"><code>${redirect}</code></p>
 ${httpsNote}${config.whoopConfigured ? '  <p class="note">Check it matches the Redirect URL in your WHOOP app.</p>\n' : ''}${steps}
+  </div>
   <footer>
     <p>${link(REPO, 'Source on GitHub')} · ${link(`${REPO}/blob/main/PRIVACY.md`, 'Privacy')} · ${link(`${REPO}/blob/main/SECURITY.md`, 'Security')}</p>
     <p>Open-source project, not affiliated with WHOOP.</p>

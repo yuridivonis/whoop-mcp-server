@@ -9,7 +9,7 @@ Setting up is shorter: the server works out its own addresses, and a page at its
 ### Added
 
 - **A set-up page at `/`:** before the Whoop app is configured, it shows the exact Redirect URL to register with Whoop and where the two values go; after, where to connect an AI app, where the password is, and how updates work. It's public, and shows only the server's addresses and whether its Whoop app is configured: never a secret, the version, or the Whoop connection. (#29)
-- **Addresses worked out for you:** when `WHOOP_REDIRECT_URI` isn't set, it's `PUBLIC_URL`'s `/callback`, or on Railway `https://<the service's domain>/callback`. On Railway the server now refuses to start until the service has a domain, and says so; an address with no host (a reference to a domain that doesn't exist yet) is refused too, as is a `WHOOP_REDIRECT_URI` that isn't a URL, even when `PUBLIC_URL` is set. (#29)
+- **Addresses worked out for you:** when `WHOOP_REDIRECT_URI` isn't set, it's `PUBLIC_URL`'s `/callback`, or on Railway `https://<the service's domain>/callback`. On Railway the server now refuses to start until the service has a domain, and says so; and `PUBLIC_URL` and `WHOOP_REDIRECT_URI` must now be `http(s)` addresses with a host: an address with no host (a reference to a domain that doesn't exist yet), a mistyped one such as `https:/callback`, or an app scheme is refused, even when `PUBLIC_URL` is set. (#29)
 - **`get_auth_url` before the Whoop app is configured** answers with the set-up page's address instead of a Whoop link that would only show an error. (#29)
 
 ### Changed

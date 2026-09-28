@@ -38,7 +38,7 @@ export function renderFirstRunPage(config: Pick<Config, 'redirectUri' | 'publicU
 		? ''
 		: `  <p class="note">WHOOP only accepts https addresses. On your own computer, set <code>WHOOP_REDIRECT_URI</code> to your tunnel's <code>/callback</code>.</p>\n`;
 	// The page shows the address without credentials or a query; WHOOP gets the configured value.
-	const redactedNote = redirectUrl.href === config.redirectUri
+	const redactedNote = redirectUrl.href === new URL(config.redirectUri).href
 		? ''
 		: `  <p class="note">Shown without any credentials or query in <code>WHOOP_REDIRECT_URI</code>. Register the exact value you configured.</p>\n`;
 

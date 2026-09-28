@@ -115,6 +115,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 		if (env.RAILWAY_ENVIRONMENT_ID && !env.WHOOP_REDIRECT_URI && !env.PUBLIC_URL && !env.RAILWAY_PUBLIC_DOMAIN?.trim()) {
 			throw new ConfigError('On Railway, generate a domain for the service (Settings → Networking → Generate Domain) or set WHOOP_REDIRECT_URI.');
 		}
+		// With PUBLIC_URL set, nothing below parses the callback, but the set-up page shows it.
+		if (env.WHOOP_REDIRECT_URI !== undefined) {
+			try {
+				new URL(env.WHOOP_REDIRECT_URI);
+			} catch {
+				throw new ConfigError('WHOOP_REDIRECT_URI must be a valid URL, e.g. https://your-app.up.railway.app/callback');
+			}
+		}
 	}
 
 	let publicUrl: URL;

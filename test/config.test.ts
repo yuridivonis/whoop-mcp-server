@@ -125,6 +125,13 @@ describe('the WHOOP callback address, when WHOOP_REDIRECT_URI is not set', () =>
 		assert.equal(loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, WHOOP_REDIRECT_URI: 'https://myserver/callback' }).publicUrl.href, 'https://myserver/');
 	});
 
+	it('refuses a WHOOP_REDIRECT_URI that is not a URL, even when PUBLIC_URL supplies the public address', () => {
+		for (const value of ['', '/callback', 'your-app.up.railway.app/callback']) {
+			assert.throws(() => loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, PUBLIC_URL: 'http://localhost:3000', WHOOP_REDIRECT_URI: value }), /WHOOP_REDIRECT_URI must be a valid URL/, JSON.stringify(value));
+		}
+		assert.equal(loadConfig({ MCP_MODE: 'stdio', PUBLIC_URL: 'http://localhost:3000', WHOOP_REDIRECT_URI: '/callback' }).mode, 'stdio', 'stdio serves no page');
+	});
+
 	it('does not apply the http-mode guards in stdio mode', () => {
 		assert.equal(loadConfig({ MCP_MODE: 'stdio', RAILWAY_ENVIRONMENT_ID: 'env-123' }).mode, 'stdio');
 		assert.equal(loadConfig({ MCP_MODE: 'stdio', RAILWAY_ENVIRONMENT_ID: 'env-123', RAILWAY_PUBLIC_DOMAIN: 'not a host' }).mode, 'stdio');

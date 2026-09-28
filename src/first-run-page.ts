@@ -6,17 +6,9 @@ const REPO = 'https://github.com/yuridivonis/whoop-mcp-server';
 const DASHBOARD = 'https://developer-dashboard.whoop.com';
 
 /**
- * The page at /: what's left to do after deploying. Before the WHOOP app is configured it
- * shows the exact Redirect URL to register and where the two values go; after, how to
- * connect an AI app.
- *
- * SECURITY: it's public, and built from the config alone (nothing from the request). It
- * shows addresses, and whether the two WHOOP app variables are set: never a secret, the
- * version, the WHOOP connection, or where the server is hosted.
- */
-/**
  * The callback address as the page may show it: scheme, host, port and path only. An
  * operator could put credentials or a query in WHOOP_REDIRECT_URI, and this page is public.
+ * The config has already checked that the value parses.
  */
 export function publicRedirectUri(redirectUri: string): URL {
 	const url = new URL(redirectUri);
@@ -27,6 +19,15 @@ export function publicRedirectUri(redirectUri: string): URL {
 	return url;
 }
 
+/**
+ * The page at /: what's left to do after deploying. Before the WHOOP app is configured it
+ * shows the exact Redirect URL to register and where the two values go; after, how to
+ * connect an AI app.
+ *
+ * SECURITY: it's public, and built from the config alone (nothing from the request). It
+ * shows addresses, and whether the two WHOOP app variables are set: never a secret, the
+ * version, the WHOOP connection, or where the server is hosted.
+ */
 export function renderFirstRunPage(config: Pick<Config, 'redirectUri' | 'publicUrl' | 'whoopConfigured'>): string {
 	const redirectUrl = publicRedirectUri(config.redirectUri);
 	const redirect = escapeHtml(redirectUrl.href);

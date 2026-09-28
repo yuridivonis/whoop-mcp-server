@@ -1,7 +1,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { SERVER_VERSION } from '../src/tools.js';
-import { PASSWORD, startTestServer, type TestServer } from './helpers.js';
+import { PASSWORD, mcpRequest, readRpc, signIn, startTestServer, type TestServer } from './helpers.js';
 
 /** What the public page must never contain, whatever the server's state. */
 function assertRevealsNothing(body: string): void {
@@ -64,9 +64,9 @@ describe('the set-up page, once the WHOOP app is configured', () => {
 		assert.equal(await res.text(), plain);
 	});
 
-	it("warns when the Redirect URL isn't https, and not otherwise", async () => {
+	it("warns when the Redirect URL isn't https, and not otherwise, however the scheme is spelled", async () => {
 		assert.ok((await page(server)).body.includes('WHOOP only accepts https addresses'), 'the test server has an http callback');
-		const secure = await startTestServer({ env: { WHOOP_REDIRECT_URI: 'https://whoop.example.com/callback' } });
+		const secure = await startTestServer({ env: { WHOOP_REDIRECT_URI: ' HTTPS://whoop.example.com/callback' } });
 		try {
 			const { body } = await page(secure);
 			assert.ok(body.includes('<code>https://whoop.example.com/callback</code>'));
@@ -74,6 +74,27 @@ describe('the set-up page, once the WHOOP app is configured', () => {
 		} finally {
 			await secure.close();
 		}
+	});
+
+	it('shows the Redirect URL without any credentials or query the operator put in it, and escaped', async () => {
+		const odd = await startTestServer({ env: { WHOOP_REDIRECT_URI: 'https://user:hunter2@whoop.example.com:8443/cb/<x>?key=private-token#frag' } });
+		try {
+			const { body } = await page(odd);
+			assert.ok(body.includes('<code>https://whoop.example.com:8443/cb/%3Cx%3E</code>'));
+			for (const secret of ['hunter2', 'user:', 'private-token', 'frag', '<x>']) {
+				assert.ok(!body.includes(secret), `the page must not show ${secret}`);
+			}
+		} finally {
+			await odd.close();
+		}
+	});
+
+	it('looks the same whether or not WHOOP is connected', async () => {
+		const before = (await page(server)).body;
+		server.db.saveTokens({ access_token: 'whoop-access-token', refresh_token: 'whoop-refresh-token', expires_at: Date.now() + 3_600_000 });
+		const after = (await page(server)).body;
+		assert.equal(after, before);
+		assert.ok(!after.includes('whoop-access-token') && !after.includes('whoop-refresh-token'));
 	});
 });
 
@@ -102,5 +123,13 @@ describe("the set-up page, before the WHOOP app is configured", () => {
 
 	it('reveals no secret, no version, no connection state, and nothing server-specific about hosting', async () => {
 		assertRevealsNothing((await page(server)).body);
+	});
+
+	it('makes get_auth_url point at this page for a signed-in app, over HTTP', async () => {
+		const { tokens } = await signIn(server.baseUrl);
+		const call = await mcpRequest(server.baseUrl, tokens.access_token, { method: 'tools/call', params: { name: 'get_auth_url', arguments: {} } });
+		const body = await readRpc<{ result: { content: { text: string }[] } }>(call);
+		assert.equal(body.result.content[0].text, `This server's WHOOP app isn't configured yet. Open ${server.baseUrl}/ for the steps.`);
+		assert.equal(server.whoop.requests.length, 0);
 	});
 });

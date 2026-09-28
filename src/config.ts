@@ -81,10 +81,18 @@ function defaultRedirectUri(env: NodeJS.ProcessEnv, mode: 'http' | 'stdio'): str
 	const domain = env.RAILWAY_PUBLIC_DOMAIN?.trim().toLowerCase();
 	// A stdio server has no public address, so a domain it can't use doesn't stop it.
 	if (domain && mode === 'http') {
-		if (!HOST_NAME.test(domain)) {
+		// The URL parser decides what a host is (it accepts punycode and a trailing dot); the
+		// value must be exactly a host, not a URL, a path or a port.
+		let parsed: URL | undefined;
+		try {
+			parsed = new URL(`https://${domain}/callback`);
+		} catch {
+			parsed = undefined;
+		}
+		if (!parsed || parsed.hostname !== domain) {
 			throw new ConfigError(`RAILWAY_PUBLIC_DOMAIN isn't a host name (got "${domain}"). Set WHOOP_REDIRECT_URI instead.`);
 		}
-		return `https://${domain}/callback`;
+		return parsed.href;
 	}
 	return 'http://localhost:3000/callback';
 }
@@ -97,9 +105,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 
 	if (mode === 'http') {
 		// A reference to a domain that doesn't exist yet gives "https:///callback", which
-		// parses to the host "callback" and would pass every check below.
+		// parses to the host "callback" and would pass every check below. Any spelling of the
+		// scheme, and any number of extra slashes, parse the same way.
 		for (const [name, value] of [['PUBLIC_URL', env.PUBLIC_URL], ['WHOOP_REDIRECT_URI', env.WHOOP_REDIRECT_URI]] as const) {
-			if (value?.trim().startsWith('https:///')) {
+			if (value !== undefined && /^\s*https?:\/{3,}/i.test(value)) {
 				throw new ConfigError(`${name} has no host (got "${value}"). Is the service's domain generated yet?`);
 			}
 		}

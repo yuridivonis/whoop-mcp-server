@@ -84,7 +84,7 @@ Add your server's address, `https://your-app.up.railway.app/mcp`, to your AI app
 
 1.3.0 stops keeping a copy of your Whoop data, and asks you before each app receives it. To upgrade:
 
-1. Get the new version: with the image, Railway's auto updates do it for you, or redeploy (Docker with `:1`: pull it again and restart). With a fork, use GitHub's **Sync fork** button, then redeploy, or switch to the image as described in [Deploy](#1-deploy).
+1. Get the new version: with the image, Railway's auto updates do it for you, or switch the **Service Source** to the `:1` tag and redeploy (Docker with `:1`: pull it again and restart). With a fork, use GitHub's **Sync fork** button, then redeploy, or switch to the image as described in [Deploy](#1-deploy).
 2. On its first start, the server deletes the recovery, sleep, strain and workout data earlier versions stored, and rewrites the database file so none of it is left on disk. Your Whoop connection is kept. The log says `Deleted the WHOOP data stored by an earlier version`.
 3. Every app is signed out once. The next time you use one, it opens the sign-in page: enter your password and tick the box allowing it to read your Whoop data.
 4. `sync_data` is gone. If your app still lists it, remove the connector and add it again.

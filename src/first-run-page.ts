@@ -14,12 +14,26 @@ const DASHBOARD = 'https://developer-dashboard.whoop.com';
  * shows addresses, and whether the two WHOOP app variables are set: never a secret, the
  * version, the WHOOP connection, or where the server is hosted.
  */
+/**
+ * The callback address as the page may show it: scheme, host, port and path only. An
+ * operator could put credentials or a query in WHOOP_REDIRECT_URI, and this page is public.
+ */
+export function publicRedirectUri(redirectUri: string): URL {
+	const url = new URL(redirectUri);
+	url.username = '';
+	url.password = '';
+	url.search = '';
+	url.hash = '';
+	return url;
+}
+
 export function renderFirstRunPage(config: Pick<Config, 'redirectUri' | 'publicUrl' | 'whoopConfigured'>): string {
-	const redirect = escapeHtml(config.redirectUri);
+	const redirectUrl = publicRedirectUri(config.redirectUri);
+	const redirect = escapeHtml(redirectUrl.href);
 	const mcp = escapeHtml(new URL('/mcp', config.publicUrl).href);
 	const link = (href: string, label: string) => `<a href="${href}" rel="noopener">${label}</a>`;
 
-	const httpsNote = config.redirectUri.startsWith('https://')
+	const httpsNote = redirectUrl.protocol === 'https:'
 		? ''
 		: `  <p class="note">WHOOP only accepts https addresses. On your own computer, set <code>WHOOP_REDIRECT_URI</code> to your tunnel's <code>/callback</code>.</p>\n`;
 

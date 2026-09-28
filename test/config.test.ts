@@ -106,11 +106,21 @@ describe('the WHOOP callback address, when WHOOP_REDIRECT_URI is not set', () =>
 		assert.throws(() => loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, RAILWAY_ENVIRONMENT_ID: 'env-123' }), /generate a domain.*or set WHOOP_REDIRECT_URI/);
 		assert.throws(() => loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, RAILWAY_ENVIRONMENT_ID: 'env-123', RAILWAY_PUBLIC_DOMAIN: '  ' }), /generate a domain/);
 		assert.throws(() => loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, RAILWAY_ENVIRONMENT_ID: 'env-123', RAILWAY_PUBLIC_DOMAIN: 'not a host' }), /RAILWAY_PUBLIC_DOMAIN.*WHOOP_REDIRECT_URI/);
+		assert.throws(() => loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, RAILWAY_ENVIRONMENT_ID: 'env-123', RAILWAY_PUBLIC_DOMAIN: 'my-app.up.railway.app/callback' }), /RAILWAY_PUBLIC_DOMAIN/);
+		assert.throws(() => loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, RAILWAY_ENVIRONMENT_ID: 'env-123', RAILWAY_PUBLIC_DOMAIN: 'https://my-app.up.railway.app' }), /RAILWAY_PUBLIC_DOMAIN/);
+	});
+
+	it('accepts an internationalized custom domain on Railway, as the URL parser does', () => {
+		const config = loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, RAILWAY_ENVIRONMENT_ID: 'env-123', RAILWAY_PUBLIC_DOMAIN: 'xn--e1afmkfd.xn--p1ai' });
+		assert.equal(config.redirectUri, 'https://xn--e1afmkfd.xn--p1ai/callback');
 	});
 
 	it('refuses an address whose host is missing, as a reference to a domain that does not exist yet gives', () => {
 		assert.throws(() => loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, WHOOP_REDIRECT_URI: 'https:///callback' }), /WHOOP_REDIRECT_URI has no host/);
 		assert.throws(() => loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, PUBLIC_URL: 'https:///' }), /PUBLIC_URL has no host/);
+		// However the scheme is spelled, and however many slashes: the parser treats them all alike.
+		assert.throws(() => loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, WHOOP_REDIRECT_URI: ' HTTPS:///callback' }), /WHOOP_REDIRECT_URI has no host/);
+		assert.throws(() => loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, PUBLIC_URL: 'https:////' }), /PUBLIC_URL has no host/);
 		// A single-label host is unusual but valid, and was accepted before.
 		assert.equal(loadConfig({ MCP_AUTH_PASSWORD: PASSWORD, WHOOP_REDIRECT_URI: 'https://myserver/callback' }).publicUrl.href, 'https://myserver/');
 	});

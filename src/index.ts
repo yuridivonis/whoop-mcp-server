@@ -37,7 +37,15 @@ updates?.start();
 
 async function main(): Promise<void> {
 	if (config.mode === 'stdio') {
-		const server = createMcpServer({ client, authStates, updates, redirectUri: config.redirectUri, mode: 'stdio' });
+		const server = createMcpServer({
+			client,
+			authStates,
+			updates,
+			redirectUri: config.redirectUri,
+			whoopConfigured: config.whoopConfigured,
+			publicUrl: config.publicUrl,
+			mode: 'stdio',
+		});
 		const transport = new StdioServerTransport();
 		await server.connect(transport);
 		process.stderr.write('Whoop MCP server running on stdio\n');
@@ -48,6 +56,7 @@ async function main(): Promise<void> {
 	const server = app.listen(config.port, '0.0.0.0', () => {
 		process.stdout.write(`Whoop MCP server running on http://0.0.0.0:${config.port}\n`);
 		process.stdout.write(`Connect your AI app to ${new URL('/mcp', config.publicUrl).href}\n`);
+		process.stdout.write(`Set-up guide: ${config.publicUrl.href}\n`);
 	});
 
 	const shutdown = (): void => {

@@ -15,12 +15,16 @@ import type { UpdateChecker } from './updates.js';
 import { localDate, localTime, wakeDay } from './days.js';
 import { whoopMessage } from './whoop-messages.js';
 
-export const SERVER_VERSION = '1.4.1';
+export const SERVER_VERSION = '1.4.2';
 
 export interface ToolDeps {
 	client: WhoopClient;
 	authStates: PendingAuthStates;
 	redirectUri: string;
+	/** Both WHOOP app values are set (config.ts). Until then get_auth_url points at the set-up page. */
+	whoopConfigured: boolean;
+	/** The server's public address; the set-up page is at its root. */
+	publicUrl: URL;
 	/** In stdio mode there is no /callback, so get_auth_url explains how to connect instead. */
 	mode: 'http' | 'stdio';
 	/** Adds a line to get_today when a newer release is out. Absent when UPDATE_CHECK=false. */
@@ -133,7 +137,7 @@ function newestFirst(a: { start: string }, b: { start: string }): number {
 	return Date.parse(b.start) - Date.parse(a.start);
 }
 
-export function createMcpServer({ client, authStates, redirectUri, mode, updates }: ToolDeps): Server {
+export function createMcpServer({ client, authStates, redirectUri, whoopConfigured, publicUrl, mode, updates }: ToolDeps): Server {
 	const server = new Server(
 		{ name: 'whoop-mcp-server', version: SERVER_VERSION },
 		{ capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS }
@@ -218,7 +222,7 @@ export function createMcpServer({ client, authStates, redirectUri, mode, updates
 					'user to open in a browser: it works once and expires in 10 minutes. Once they have ' +
 					'logged in, get_today and the other data tools work. ' +
 					"It doesn't read any WHOOP data. A server running in stdio mode can't receive WHOOP's login, so there it returns " +
-					'setup instructions instead.',
+					"setup instructions instead; a server whose WHOOP app isn't configured yet answers with the address of its set-up page.",
 				inputSchema: { type: 'object', properties: {}, required: [] },
 				// Nothing changes until the user opens the link.
 				annotations: { readOnlyHint: true, openWorldHint: false },
@@ -445,6 +449,10 @@ export function createMcpServer({ client, authStates, redirectUri, mode, updates
 							"In stdio mode this server can't receive Whoop's login redirect. Connect Whoop once by running the server in http mode " +
 								'with the same DB_PATH, stop it, then restart this one (see "Running on Your Own Computer" in the README).'
 						);
+					}
+					if (!whoopConfigured) {
+						// Without the app's keys, WHOOP's login would only show an error page.
+						return text(`This server's WHOOP app isn't configured yet. Open ${publicUrl.href} for the steps.`);
 					}
 					const url = client.authorizationUrl({ scopes: WHOOP_SCOPES, state: authStates.issue() });
 					return text(

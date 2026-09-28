@@ -93,15 +93,29 @@ describe('documentation links', () => {
 			}
 		}
 	});
+
+	it('from the set-up page point to files and README headings that exist', () => {
+		const repo = 'https://github.com/yuridivonis/whoop-mcp-server';
+		const links = [...read('src/first-run-page.ts').matchAll(/https:\/\/github\.com\/yuridivonis\/whoop-mcp-server[^'"`\s)]*/g)].map(match => match[0]);
+		const templated = [...read('src/first-run-page.ts').matchAll(/\$\{REPO\}(\/blob\/main\/[^'"`\s)]+|#[\w-]+)/g)].map(match => `${repo}${match[1]}`);
+		assert.ok(templated.length >= 4, 'the page links into the repository');
+		for (const link of [...links, ...templated]) {
+			const rest = link.slice(repo.length);
+			if (rest.startsWith('/blob/main/')) {
+				assert.ok(existsSync(new URL(`../${rest.slice('/blob/main/'.length)}`, import.meta.url)), `${link}: file is missing`);
+			} else if (rest.startsWith('#')) {
+				assert.ok(headingAnchors('README.md').has(rest.slice(1)), `${link}: README has no such heading`);
+			}
+		}
+	});
 });
 
 describe('README', () => {
-	it('tells Railway users to deploy the current version, so auto updates start from it', () => {
+	it('deploys the :1 tag everywhere, which moves with every 1.x release, and pins no version', () => {
 		const readme = read('README.md');
-		assert.ok(readme.includes(`enter \`ghcr.io/yuridivonis/whoop-mcp-server:${version}\``), 'step 1 names the current version');
-		const pinned = [...readme.matchAll(/ghcr\.io\/yuridivonis\/whoop-mcp-server:(\d+\.\d+\.\d+)/g)].map(match => match[1]);
-		assert.ok(pinned.length >= 2);
-		assert.deepEqual([...new Set(pinned)], [version], 'every pinned image is the current version');
+		const tags = [...readme.matchAll(/ghcr\.io\/yuridivonis\/whoop-mcp-server:([\w.-]+)/g)].map(match => match[1]);
+		assert.ok(tags.length >= 3);
+		assert.deepEqual([...new Set(tags)], ['1'], 'every tagged image mention uses :1');
 	});
 });
 

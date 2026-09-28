@@ -8,9 +8,10 @@ import type { Config } from './config.js';
 import type { WhoopDatabase } from './database.js';
 import { McpAuthProvider, signInGeneration } from './auth/provider.js';
 import { createMcpServer, type ToolDeps } from './tools.js';
+import { sendFirstRunPage } from './first-run-page.js';
 import { whoopMessage } from './whoop-messages.js';
 
-export interface AppDeps extends Omit<ToolDeps, 'redirectUri' | 'mode'> {
+export interface AppDeps extends Omit<ToolDeps, 'redirectUri' | 'mode' | 'whoopConfigured' | 'publicUrl'> {
 	config: Config;
 	/** Sign-ins for /mcp and the WHOOP tokens. */
 	db: WhoopDatabase;
@@ -123,6 +124,11 @@ export function createApp({ config, db, client, authStates, updates, log = logTo
 		}
 	});
 
+	// Public: what's left to set up. It says nothing about the owner's data or Whoop connection.
+	app.get('/', (_req: Request, res: Response) => {
+		sendFirstRunPage(res, config);
+	});
+
 	// Public, so it says nothing about the owner's data or Whoop connection.
 	app.get('/health', (_req: Request, res: Response) => {
 		res.json({ status: 'ok' });
@@ -131,7 +137,15 @@ export function createApp({ config, db, client, authStates, updates, log = logTo
 	// Stateless Streamable HTTP: every request gets its own server and transport, so there
 	// are no sessions to leak, expire or lose on redeploy, and nothing is shared between clients.
 	app.post('/mcp', requireAuth, acceptEventStream, async (req: Request, res: Response) => {
-		const server = createMcpServer({ client, authStates, updates, redirectUri: config.redirectUri, mode: 'http' });
+		const server = createMcpServer({
+			client,
+			authStates,
+			updates,
+			redirectUri: config.redirectUri,
+			whoopConfigured: config.whoopConfigured,
+			publicUrl: config.publicUrl,
+			mode: 'http',
+		});
 		const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 		res.on('close', () => {
 			transport.close().catch(() => {});

@@ -44,6 +44,9 @@ export async function startTestServer({ dbPath = ':memory:', password = PASSWORD
 		MCP_AUTH_PASSWORD: password,
 		PUBLIC_URL: baseUrl,
 		WHOOP_REDIRECT_URI: `${baseUrl}/callback`,
+		// The same app credentials the client below is given, so the server counts as configured.
+		WHOOP_CLIENT_ID: 'test-client-id',
+		WHOOP_CLIENT_SECRET: 'test-client-secret',
 		DB_PATH: dbPath,
 		...env,
 	});

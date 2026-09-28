@@ -97,6 +97,14 @@ jobs:
           status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
             --request POST http://localhost:3000/mcp --header 'Content-Type: application/json' --data '{}')
           test "$status" = 401
+      - name: Serves the set-up page, without its secrets
+        run: |
+          page=$(curl --silent --fail http://localhost:3000/)
+          grep -q "Whoop MCP Server" <<<"$page"
+          if grep -q "ci-smoke-test" <<<"$page"; then
+            echo "The set-up page shows a secret" >&2
+            exit 1
+          fi
       - name: Server logs
         if: failure()
         run: docker logs server

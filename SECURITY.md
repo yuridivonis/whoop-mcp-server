@@ -15,7 +15,7 @@ Please report vulnerabilities privately: open the [Security tab](https://github.
 
 Include what you found, how to reproduce it, and what an attacker could do with it. I'll acknowledge your report within 7 days, keep you updated while it's being fixed, and credit you in the advisory unless you'd rather stay anonymous.
 
-**In scope:** the code in this repository, including the sign-in for `/mcp`, the Whoop authorization callback, token storage, and the MCP tools.
+**In scope:** the code in this repository, including the sign-in for `/mcp`, the Whoop authorization callback, the set-up page at `/`, token storage, and the MCP tools.
 
 **Out of scope:** the Whoop API and MCP clients such as Claude, and problems that need a misconfigured deployment (for example a guessable `MCP_AUTH_PASSWORD`).
 
@@ -30,7 +30,7 @@ Include what you found, how to reproduce it, and what an attacker could do with 
 
 | Threat | Defense |
 |---|---|
-| Someone finds your server's address | `/mcp` answers only signed-in apps, password guesses are rate-limited, and the public `/health` endpoint reveals nothing. |
+| Someone finds your server's address | `/mcp` answers only signed-in apps, password guesses are rate-limited, and the public `/health` endpoint reveals nothing. The set-up page at `/` shows only the server's addresses (including the Whoop callback's host, which you configured) and whether its Whoop app is configured. |
 | A phishing link to your sign-in page | Codes only go to allowed destinations. The page names where you'll return, warns about links from others, and needs your consent. Every successful sign-in is logged. |
 | A rogue app registers itself | Only apps returning to allowed addresses can register, and an app's chosen name is shown as plain text, never trusted. |
 | A stolen code or token is replayed | Codes and refresh tokens work once. A replay revokes the whole sign-in, and tokens expire. |
@@ -56,12 +56,12 @@ Include what you found, how to reproduce it, and what an attacker could do with 
 - **Whoop authorization:** each link from `get_auth_url` carries a one-time `state` that expires after 10 minutes.
 - **Least data:** the server asks Whoop only for recovery, cycles, sleep, and workouts.
 - **Stored Whoop tokens:** encrypted with AES-256-GCM, using a key derived from `ENCRYPTION_SECRET` (or `WHOOP_CLIENT_SECRET` if that isn't set).
-- **Public endpoints:** `/health` only reports that the server is up, and says nothing about your data or your Whoop connection.
+- **Public endpoints:** `/health` only reports that the server is up, and says nothing about your data or your Whoop connection. The set-up page at `/` shows the server's addresses and whether its Whoop app is configured: never a secret, the version, or the Whoop connection.
 - **Supply chain:** actions are pinned to commits and the base image to a digest, release images are attested, and CI checks dependencies for known vulnerabilities and non-permissive licences. CodeQL scans every pull request, and Dependabot proposes updates weekly. The README's OpenSSF Scorecard badge shows the current rating, and the project holds the [OpenSSF Best Practices](https://www.bestpractices.dev/projects/14971) passing badge.
 
 ## If you run a deployment
 
-- **Stay up to date:** deploy the image rather than a fork. On Railway, turn on auto updates (see [Setup](README.md#2-deploy)); with Docker, run the `:1` tag, which picks up every 1.x release when you pull and restart. If you run a fork, keep it updated with GitHub's **Sync fork** button. Watch this repository's releases (**Watch → Custom → Releases**) to hear about security fixes. Unless `UPDATE_CHECK=false`, `get_today` also mentions a newer version once it's out.
+- **Stay up to date:** deploy the image's `:1` tag rather than a fork; it moves with every 1.x release. On Railway, turn on auto updates so each release redeploys the service (see [Setup](README.md#1-deploy)); with Docker, pull it again and restart. If you run a fork, keep it updated with GitHub's **Sync fork** button. Watch this repository's releases (**Watch → Custom → Releases**) to hear about security fixes. Unless `UPDATE_CHECK=false`, `get_today` also mentions a newer version once it's out.
 - **Secrets:** use a long random `MCP_AUTH_PASSWORD` and set `ENCRYPTION_SECRET`.
 - **Signing everyone out:** change `MCP_AUTH_PASSWORD` and redeploy. Every existing sign-in stops working, so your MCP clients will ask you to sign in again. Do this if you think your password may have leaked.
 - **Watching for strangers:** every successful sign-in is logged as `Signed in: client <id>, returning to <destination>, app "<name>"`. Check your server logs for any you don't recognize.

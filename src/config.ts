@@ -1,6 +1,8 @@
 export interface Config {
 	clientId: string;
 	clientSecret: string;
+	/** Both WHOOP app values are set. Until then the set-up page at / shows what to do, and get_auth_url points there. */
+	whoopConfigured: boolean;
 	redirectUri: string;
 	dbPath: string;
 	port: number;
@@ -64,10 +66,46 @@ function parseRedirectHosts(env: NodeJS.ProcessEnv): string[] {
 	return [...new Set([...DEFAULT_REDIRECT_HOSTS, ...extra])];
 }
 
+/**
+ * The WHOOP callback address when WHOOP_REDIRECT_URI isn't set: PUBLIC_URL's, else the
+ * Railway domain's, else this computer's. So a Railway deploy never has to type it.
+ */
+function defaultRedirectUri(env: NodeJS.ProcessEnv): string {
+	if (env.PUBLIC_URL) {
+		try {
+			return new URL('/callback', new URL(env.PUBLIC_URL).origin).href;
+		} catch {
+			return env.PUBLIC_URL; // reported by the PUBLIC_URL check below
+		}
+	}
+	const domain = env.RAILWAY_PUBLIC_DOMAIN?.trim().toLowerCase();
+	if (domain) {
+		if (!HOST_NAME.test(domain)) {
+			throw new ConfigError(`RAILWAY_PUBLIC_DOMAIN isn't a host name (got "${domain}"). Set WHOOP_REDIRECT_URI instead.`);
+		}
+		return `https://${domain}/callback`;
+	}
+	return 'http://localhost:3000/callback';
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 	const mode = env.MCP_MODE === 'stdio' ? 'stdio' : 'http';
-	const redirectUri = env.WHOOP_REDIRECT_URI ?? 'http://localhost:3000/callback';
+	const redirectUri = env.WHOOP_REDIRECT_URI ?? defaultRedirectUri(env);
 	const authPassword = env.MCP_AUTH_PASSWORD ?? '';
+	const whoopConfigured = (env.WHOOP_CLIENT_ID ?? '').trim() !== '' && (env.WHOOP_CLIENT_SECRET ?? '').trim() !== '';
+
+	if (mode === 'http') {
+		// A reference to a domain that doesn't exist yet gives "https:///callback", which
+		// parses to the host "callback" and would pass every check below.
+		for (const [name, value] of [['PUBLIC_URL', env.PUBLIC_URL], ['WHOOP_REDIRECT_URI', env.WHOOP_REDIRECT_URI]] as const) {
+			if (value?.trim().startsWith('https:///')) {
+				throw new ConfigError(`${name} has no host (got "${value}"). Is the service's domain generated yet?`);
+			}
+		}
+		if (env.RAILWAY_ENVIRONMENT_ID && !env.WHOOP_REDIRECT_URI && !env.PUBLIC_URL && !env.RAILWAY_PUBLIC_DOMAIN?.trim()) {
+			throw new ConfigError('On Railway, generate a domain for the service (Settings → Networking → Generate Domain) or set WHOOP_REDIRECT_URI.');
+		}
+	}
 
 	let publicUrl: URL;
 	try {
@@ -95,6 +133,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 	return {
 		clientId: env.WHOOP_CLIENT_ID ?? '',
 		clientSecret: env.WHOOP_CLIENT_SECRET ?? '',
+		whoopConfigured,
 		redirectUri,
 		dbPath: env.DB_PATH ?? './whoop.db',
 		port: Number.parseInt(env.PORT ?? '3000', 10),

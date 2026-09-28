@@ -42,7 +42,7 @@ interface Connected {
 /** An MCP client connected to the tools, with a fake WHOOP behind them. */
 async function connect(
 	t: TestContext,
-	{ connected = true, mode = 'http', tokens }: { connected?: boolean; mode?: 'http' | 'stdio'; tokens?: StoredWhoopTokens } = {},
+	{ connected = true, mode = 'http', tokens, whoopConfigured = true }: { connected?: boolean; mode?: 'http' | 'stdio'; tokens?: StoredWhoopTokens; whoopConfigured?: boolean } = {},
 ): Promise<Connected> {
 	const db = memoryDb(t);
 	if (tokens) db.saveTokens(tokens);
@@ -52,6 +52,8 @@ async function connect(
 		client: new WhoopClient({ clientId: 'id', clientSecret: 'secret', redirectUri: 'http://localhost:3000/callback', store: db.whoopTokens, fetch: whoop.fetch }),
 		authStates: new PendingAuthStates(),
 		redirectUri: 'http://localhost:3000/callback',
+		whoopConfigured,
+		publicUrl: new URL('http://localhost:3000'),
 		mode,
 	});
 	const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
@@ -242,6 +244,7 @@ describe('tool definitions', () => {
 			assert.match(description, /live from WHOOP on every call and keeps no copy/, `${name} says it fetches live`);
 			assert.match(description, /get_auth_url/, `${name} says what to do when WHOOP isn't connected`);
 		}
+		assert.match(tools.find(tool => tool.name === 'get_auth_url')?.description ?? '', /set-up page/, 'get_auth_url says what it answers before the WHOOP app is configured');
 
 		const readOnly = tools.filter(tool => tool.annotations?.readOnlyHint).map(tool => tool.name).sort();
 		assert.deepEqual(readOnly, ['get_auth_url', 'get_recovery_trends', 'get_sleep_analysis', 'get_strain_history', 'get_today', 'get_workouts']);
@@ -254,6 +257,15 @@ describe('tool definitions', () => {
 		assert.match(await reply(0), /last 14 days/);
 		assert.match(await reply(91), /last 90 days/);
 		assert.match(await reply('7'), /last 7 days/);
+	});
+
+	it("points at the set-up page, without calling WHOOP, while the WHOOP app isn't configured", async t => {
+		const { whoop, call } = await connect(t, { whoopConfigured: false });
+		const reply = await call('get_auth_url');
+		assert.equal(reply.text, "This server's WHOOP app isn't configured yet. Open http://localhost:3000/ for the steps.");
+		assert.equal(reply.isError, false);
+		assert.doesNotMatch(reply.text, /api\.prod\.whoop\.com/, 'no WHOOP link that would only show an error page');
+		assert.equal(whoop.requests.length, 0);
 	});
 
 	it('tells clients how the tools fit together when they connect', async t => {

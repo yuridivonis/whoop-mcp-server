@@ -189,6 +189,8 @@ describe('the update notice in get_today', () => {
 			client: new WhoopClient({ clientId: 'id', clientSecret: 'secret', redirectUri: 'http://localhost:3000/callback', store: db.whoopTokens, fetch: whoop.fetch }),
 			authStates: new PendingAuthStates(),
 			redirectUri: 'http://localhost:3000/callback',
+			whoopConfigured: true,
+			publicUrl: new URL('http://localhost:3000'),
 			mode: 'http',
 			updates,
 		});

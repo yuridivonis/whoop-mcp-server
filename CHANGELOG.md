@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.4.2] - 2026-09-28
+
+Setting up is shorter: the server works out its own addresses, and a page at its root shows what's left to do. Nothing to do when upgrading: redeploy, or let Railway's auto updates do it.
+
+### Added
+
+- **A set-up page at `/`:** before the Whoop app is configured, it shows the exact Redirect URL to register with Whoop and where the two values go; after, where to connect an AI app, where the password is, and how updates work. It's public, and shows only the server's addresses and whether its Whoop app is configured: never a secret, the version, or the Whoop connection. (#29)
+- **Addresses worked out for you:** when `WHOOP_REDIRECT_URI` isn't set, it's `PUBLIC_URL`'s `/callback`, or on Railway `https://<the service's domain>/callback`. On Railway the server now refuses to start until the service has a domain, and says so; an address with no host (a reference to a domain that doesn't exist yet) is refused too. (#29)
+- **`get_auth_url` before the Whoop app is configured** answers with the set-up page's address instead of a Whoop link that would only show an error. (#29)
+
+### Changed
+
+- **Deploy the `:1` tag:** the README now deploys `ghcr.io/yuridivonis/whoop-mcp-server:1` everywhere. Railway documents that it redeploys a service whenever a new image is pushed to its tag, once auto updates are switched on for the service, and this project moves `:1` with every 1.x release. (#29)
+- **The WHOOP client is its own package,** `packages/whoop-client`, built on by the server and to be published to npm later. A race in the token refresh is fixed with it: two different requests starting on a fresh client could present a spent refresh token, which can end the Whoop authorization. Practically unreachable with this server's database, but real with a slower one. (#28)
+- **Dependabot** no longer proposes new major versions of `@types/node`, TypeScript or Express; each moves in a pull request of its own. (#25)
+- **OpenSSF Best Practices:** the project holds the passing badge, and the README's Contributing section states the test policy and what a change needs. (#26)
+
 ## [1.4.1] - 2026-09-27
 
 More checks on the code and on how releases are built, and three small fixes. Nothing to do when upgrading: redeploy, or let Railway's auto updates do it.
@@ -161,6 +178,7 @@ Upgrading takes a few minutes: see [Upgrading from 1.0.0](README.md#upgrading-fr
 
 Initial release: a remote MCP server with Whoop recovery, sleep, and strain tools, a local SQLite cache, and Railway deployment.
 
+[1.4.2]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.2
 [1.4.1]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.1
 [1.4.0]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.0
 [1.3.1]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.3.1

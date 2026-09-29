@@ -98,15 +98,16 @@ function defaultRedirectUri(env: NodeJS.ProcessEnv, mode: 'http' | 'stdio'): str
 }
 
 /**
- * The value a deployment can give WHOOP_CLIENT_ID and WHOOP_CLIENT_SECRET before the WHOOP
- * app exists, so the owner edits a variable instead of creating one. It counts as unset.
+ * The values a deployment can give WHOOP_CLIENT_ID and WHOOP_CLIENT_SECRET before the WHOOP
+ * app exists, so the owner edits a variable instead of creating one. Anything starting with
+ * "replace-with" counts as unset (WHOOP's real values are hex), as does 1.4.3's placeholder.
  */
-export const PLACEHOLDER = 'paste-after-deploy';
+export const PLACEHOLDERS = { clientId: 'replace-with-your-client-id', clientSecret: 'replace-with-your-client-secret' };
 
-/** Whether a WHOOP app value has been filled in: not empty, and not the placeholder. */
+/** Whether a WHOOP app value has been filled in: not empty, and not a placeholder. */
 function isSet(value: string | undefined): boolean {
-	const trimmed = (value ?? '').trim();
-	return trimmed !== '' && trimmed.toLowerCase() !== PLACEHOLDER;
+	const trimmed = (value ?? '').trim().toLowerCase();
+	return trimmed !== '' && !trimmed.startsWith('replace-with') && trimmed !== 'paste-after-deploy';
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {

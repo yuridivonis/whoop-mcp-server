@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.4.4] - 2026-09-29
+
+### Changed
+
+- **Placeholders that say what to do:** the Whoop variables can now hold `replace-with-your-client-id` and `replace-with-your-client-secret` before the app exists; any value starting with `replace-with` counts as unset (1.4.3's `paste-after-deploy` still does). The set-up page and the README say "paste the Client ID over it".
+
 ## [1.4.3] - 2026-09-29
 
 The set-up page follows Whoop's form, and a deployment can ship the two Whoop variables ready to fill in. Nothing to do when upgrading: redeploy, or let Railway's auto updates do it.
@@ -190,6 +196,7 @@ Upgrading takes a few minutes: see [Upgrading from 1.0.0](README.md#upgrading-fr
 
 Initial release: a remote MCP server with Whoop recovery, sleep, and strain tools, a local SQLite cache, and Railway deployment.
 
+[1.4.4]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.4
 [1.4.3]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.3
 [1.4.2]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.2
 [1.4.1]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.1

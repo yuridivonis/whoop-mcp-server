@@ -149,9 +149,11 @@ describe('whoopConfigured', () => {
 		assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: '', WHOOP_CLIENT_SECRET: 'secret' }).whoopConfigured, false);
 		assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: 'id', WHOOP_CLIENT_SECRET: '' }).whoopConfigured, false);
 		assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: '  ', WHOOP_CLIENT_SECRET: 'secret' }).whoopConfigured, false);
-		assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: 'id', WHOOP_CLIENT_SECRET: ' PASTE-AFTER-DEPLOY' }).whoopConfigured, false, 'the placeholder counts as unset');
-		assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: 'paste-after-deploy', WHOOP_CLIENT_SECRET: 'secret' }).whoopConfigured, false);
-		const placeholder = loadConfig({ ...base, WHOOP_CLIENT_ID: 'paste-after-deploy', WHOOP_CLIENT_SECRET: 'Paste-After-Deploy' });
+		assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: 'id', WHOOP_CLIENT_SECRET: ' REPLACE-WITH-YOUR-CLIENT-SECRET' }).whoopConfigured, false, 'a placeholder counts as unset');
+		assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: 'replace-with-your-client-id', WHOOP_CLIENT_SECRET: 'secret' }).whoopConfigured, false);
+		assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: 'replace-with anything', WHOOP_CLIENT_SECRET: 'secret' }).whoopConfigured, false, 'the prefix is enough');
+		assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: 'paste-after-deploy', WHOOP_CLIENT_SECRET: 'secret' }).whoopConfigured, false, "1.4.3's placeholder still counts");
+		const placeholder = loadConfig({ ...base, WHOOP_CLIENT_ID: 'replace-with-your-client-id', WHOOP_CLIENT_SECRET: 'Replace-With-Your-Client-Secret' });
 		assert.deepEqual([placeholder.clientId, placeholder.clientSecret], ['', ''], 'the placeholder is no credential');
 		assert.equal(loadConfig(base).whoopConfigured, false);
 	});

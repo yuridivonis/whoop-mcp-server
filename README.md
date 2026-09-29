@@ -50,7 +50,7 @@ Every release is published as a ready-made image, `ghcr.io/yuridivonis/whoop-mcp
 2. Add environment variables:
    - `MCP_AUTH_PASSWORD`: the password each AI app asks for when you connect it. Generate one with `openssl rand -base64 24` and keep it in your password manager. The server refuses to start without it (at least 16 characters).
    - `ENCRYPTION_SECRET` (optional, recommended): generate one with `openssl rand -base64 32`. It encrypts your stored Whoop tokens, so rotating the Whoop client secret later won't disconnect your account.
-   - `WHOOP_CLIENT_ID` and `WHOOP_CLIENT_SECRET`: `paste-after-deploy` for now. The server treats that value as unset; you replace it in [Create a Whoop Developer App](#2-create-a-whoop-developer-app).
+   - `WHOOP_CLIENT_ID` = `replace-with-your-client-id` and `WHOOP_CLIENT_SECRET` = `replace-with-your-client-secret` for now. The server treats those as unset; you replace them in [Create a Whoop Developer App](#2-create-a-whoop-developer-app).
 3. Add a volume mounted at `/data`. It holds the sign-ins and your encrypted Whoop tokens; without it, every redeploy signs your apps out and disconnects Whoop.
 4. Turn on updates: in the service's **Settings**, under **Source**, choose **Configure Auto Updates** and a maintenance window (for example **Night**). The `:1` tag moves with every 1.x release, and Railway then redeploys the service; on the Pro plan it backs up the volume first.
 5. Deploy, then open `https://your-app.up.railway.app/`: the set-up page shows what's left to do. If the deploy fails, open its logs: the server says what's missing.
@@ -71,7 +71,7 @@ Your server's set-up page, `https://your-app.up.railway.app/`, walks through Who
    - **Webhooks**: skip it.
 
    Click **Create App**: Whoop shows the app's **Client ID** and **Client Secret**.
-2. In the service's **Variables** tab, replace `paste-after-deploy` in `WHOOP_CLIENT_ID` with the Client ID and in `WHOOP_CLIENT_SECRET` with the Client Secret, then click **Deploy** at the top. The set-up page then shows the next step.
+2. In the service's **Variables** tab, paste the Client ID over `replace-with-your-client-id` in `WHOOP_CLIENT_ID` and the Client Secret over `replace-with-your-client-secret` in `WHOOP_CLIENT_SECRET`, then click **Deploy** at the top. The set-up page then shows the next step.
 
 If you add a custom domain later, open the set-up page again: if the Redirect URL it shows changed, update it in your Whoop app, or set `WHOOP_REDIRECT_URI`.
 
@@ -217,7 +217,7 @@ To run your own changes, fork this repository and deploy the fork instead of the
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `WHOOP_CLIENT_ID` | Whoop OAuth client ID | Needed to connect Whoop. Until both are set, the set-up page at `/` shows the steps; `paste-after-deploy` counts as unset |
+| `WHOOP_CLIENT_ID` | Whoop OAuth client ID | Needed to connect Whoop. Until both are set, the set-up page at `/` shows the steps; a value starting with `replace-with` counts as unset |
 | `WHOOP_CLIENT_SECRET` | Whoop OAuth client secret | As above |
 | `WHOOP_REDIRECT_URI` | OAuth callback URL | `PUBLIC_URL` + `/callback`; on Railway `https://<the service's domain>/callback`; else `http://localhost:3000/callback` |
 | `MCP_AUTH_PASSWORD` | Password for the sign-in page that protects `/mcp` (16+ characters) | Required in `http` mode |

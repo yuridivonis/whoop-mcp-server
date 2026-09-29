@@ -1,5 +1,8 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { Script } from 'node:vm';
+import { COPY_SCRIPT } from '../src/first-run-page.js';
 import { SERVER_VERSION } from '../src/tools.js';
 import { PASSWORD, mcpRequest, readRpc, signIn, startTestServer, type TestServer } from './helpers.js';
 
@@ -11,6 +14,22 @@ function assertRevealsNothing(body: string): void {
 	assert.doesNotMatch(body, /connected/i, 'the page says nothing about the WHOOP connection');
 	// It names Railway in its instructions for everyone; it must not name or branch on Railway's variables.
 	assert.doesNotMatch(body, /RAILWAY/, "the page doesn't reveal which host's variables the server sees");
+}
+
+/** The page runs the Copy script and nothing else: the policy names it by hash, and it parses. */
+function assertOnlyTheCopyScript(res: Response, body: string): void {
+	const scripts = [...body.matchAll(/<script>([^]*?)<\/script>/g)].map(match => match[1]);
+	assert.deepEqual(scripts, [COPY_SCRIPT], 'the script is the static constant, served whole');
+	new Script(COPY_SCRIPT); // throws on a syntax error, which would leave every button hidden
+	const hash = createHash('sha256').update(scripts[0]).digest('base64');
+	assert.equal(res.headers.get('content-security-policy'), `default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-${hash}'; frame-ancestors 'none'`);
+	assert.doesNotMatch(COPY_SCRIPT, /\$\{|\bon\w+=/, 'nothing interpolated, no inline handlers');
+	assert.doesNotMatch(body, /\son\w+="|javascript:/i, 'no inline handlers or javascript: links: the policy would block them');
+}
+
+/** The values to paste, in page order, each in a box with a Copy button. */
+function boxes(body: string): string[] {
+	return [...body.matchAll(/<p class="box"><code>([^<]+)<\/code><button type="button" data-copy hidden aria-live="polite" aria-label="Copy the [^"]+">Copy<\/button><\/p>/g)].map(match => match[1]);
 }
 
 async function page(server: TestServer): Promise<{ res: Response; body: string }> {
@@ -39,15 +58,15 @@ describe('the set-up page, once the WHOOP app is configured', () => {
 
 	it('still shows the Redirect URL to check, and how to find the WHOOP app step', async () => {
 		const { body } = await page(server);
-		assert.ok(body.includes(`<code>${server.baseUrl}/callback</code>`));
+		assert.deepEqual(boxes(body), [`${server.baseUrl}/mcp`, `${server.baseUrl}/callback`]);
 		assert.ok(body.includes('Check it matches the Redirect URL in your WHOOP app.'));
-		assert.ok(body.includes('Not created it yet, or pasted a placeholder?'));
+		assert.ok(body.includes('Not created it yet, or pasted the wrong values?'));
 		assert.ok(body.includes('If you add a custom domain later'));
 	});
 
-	it('sends the same headers as the sign-in pages, and asks not to be indexed', async () => {
+	it('sends the same headers as the sign-in pages, allowing only its own Copy script, and asks not to be indexed', async () => {
 		const { res, body } = await page(server);
-		assert.equal(res.headers.get('content-security-policy'), "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'");
+		assertOnlyTheCopyScript(res, body);
 		assert.equal(res.headers.get('x-frame-options'), 'DENY');
 		assert.equal(res.headers.get('referrer-policy'), 'no-referrer');
 		assert.equal(res.headers.get('cache-control'), 'no-store');
@@ -131,9 +150,35 @@ describe("the set-up page, before the WHOOP app is configured", () => {
 			assert.ok(body.includes(`<code>${scope}</code>`), scope);
 		}
 		assert.ok(body.includes('Step 2 of 2'));
-		assert.ok(body.includes('<code>WHOOP_CLIENT_ID</code> and <code>WHOOP_CLIENT_SECRET</code>'));
+		assert.ok(body.includes('<code>WHOOP_CLIENT_ID</code>: replace <code>paste-after-deploy</code> with the Client ID.'));
+		assert.ok(body.includes('<code>WHOOP_CLIENT_SECRET</code>: the same, with the Client Secret.'));
 		assert.ok(!body.includes('/mcp'));
 		assert.ok(!body.includes('Configure Auto Updates'));
+	});
+
+	it("walks through WHOOP's New App form in its order, with a Copy button on each value to paste", async () => {
+		const { body } = await page(server);
+		const labels = [...body.matchAll(/<dt>([^<]+)<\/dt>/g)].map(match => match[1]);
+		assert.deepEqual(labels, ['Name', 'Logo', 'Contacts', 'Privacy Policy', 'Redirect URLs', 'Scopes', 'Webhooks']);
+		assert.deepEqual(boxes(body), ['https://github.com/yuridivonis/whoop-mcp-server/blob/main/PRIVACY.md', `${server.baseUrl}/callback`]);
+		assert.ok(body.indexOf('Create App') < body.indexOf('Step 2 of 2'), 'the keys come after the app exists');
+		assert.ok(body.includes('Not <code>read:profile</code> or <code>read:body_measurement</code>.'), 'names the scopes to leave');
+	});
+
+	it('runs only the Copy script here too', async () => {
+		const { res, body } = await page(server);
+		assertOnlyTheCopyScript(res, body);
+	});
+
+	it('treats the placeholder the Railway template ships as not configured, whatever its case', async () => {
+		const placeholder = await startTestServer({ env: { WHOOP_CLIENT_ID: 'Paste-After-Deploy ', WHOOP_CLIENT_SECRET: 'paste-after-deploy' } });
+		try {
+			const { body } = await page(placeholder);
+			assert.ok(body.includes('<h1>Set up your server</h1>'));
+			assert.ok(!body.includes('Paste-After-Deploy'));
+		} finally {
+			await placeholder.close();
+		}
 	});
 
 	it('reveals no secret, no version, no connection state, and nothing server-specific about hosting', async () => {

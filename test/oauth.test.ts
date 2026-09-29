@@ -351,9 +351,9 @@ describe('consent to share WHOOP data', () => {
 		];
 		assert.deepEqual(pages.map(page => page.status), [200, 400, 401]);
 		for (const page of pages) {
-			const csp = page.headers.get('content-security-policy') ?? '';
-			assert.match(csp, /default-src 'none'/);
-			assert.match(csp, /frame-ancestors 'none'/);
+			// Exactly this policy: no script-src, unlike the set-up page, and no script in the body.
+			assert.equal(page.headers.get('content-security-policy'), "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'");
+			assert.doesNotMatch(await page.clone().text(), /<script/i);
 			assert.equal(page.headers.get('x-frame-options'), 'DENY');
 			assert.equal(page.headers.get('cache-control'), 'no-store');
 			assert.equal(page.headers.get('referrer-policy'), 'no-referrer');

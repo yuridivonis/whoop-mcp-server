@@ -50,6 +50,7 @@ Every release is published as a ready-made image, `ghcr.io/yuridivonis/whoop-mcp
 2. Add environment variables:
    - `MCP_AUTH_PASSWORD`: the password each AI app asks for when you connect it. Generate one with `openssl rand -base64 24` and keep it in your password manager. The server refuses to start without it (at least 16 characters).
    - `ENCRYPTION_SECRET` (optional, recommended): generate one with `openssl rand -base64 32`. It encrypts your stored Whoop tokens, so rotating the Whoop client secret later won't disconnect your account.
+   - `WHOOP_CLIENT_ID` and `WHOOP_CLIENT_SECRET`: `paste-after-deploy` for now. The server treats that value as unset; you replace it in [Create a Whoop Developer App](#2-create-a-whoop-developer-app).
 3. Add a volume mounted at `/data`. It holds the sign-ins and your encrypted Whoop tokens; without it, every redeploy signs your apps out and disconnects Whoop.
 4. Turn on updates: in the service's **Settings**, under **Source**, choose **Configure Auto Updates** and a maintenance window (for example **Night**). The `:1` tag moves with every 1.x release, and Railway then redeploys the service; on the Pro plan it backs up the volume first.
 5. Deploy, then open `https://your-app.up.railway.app/`: the set-up page shows what's left to do. If the deploy fails, open its logs: the server says what's missing.
@@ -58,13 +59,19 @@ Every release is published as a ready-made image, `ghcr.io/yuridivonis/whoop-mcp
 
 ### 2. Create a Whoop Developer App
 
-1. In the [Whoop Developer Dashboard](https://developer-dashboard.whoop.com), create an app and fill in:
+Your server's set-up page, `https://your-app.up.railway.app/`, walks through Whoop's New App form in the form's own order, with a Copy button on each value to paste. The same, in short:
+
+1. In the [Whoop Developer Dashboard](https://developer-dashboard.whoop.com), open **New App** and fill the form top to bottom:
+   - **Name**: anything. You see it when you approve the app.
+   - **Logo**: skip it.
    - **Contacts**: your email. Only Whoop sees it.
    - **Privacy Policy**: this project's [PRIVACY.md](PRIVACY.md), `https://github.com/yuridivonis/whoop-mcp-server/blob/main/PRIVACY.md`, or your own adapted copy if you run the server for someone else. People see this link when they approve the app.
-   - **Redirect URL**: your server's callback, `https://your-app.up.railway.app/callback`. The set-up page shows it exactly.
-   - **Scopes**: `read:recovery`, `read:cycles`, `read:sleep`, and `read:workout`. The server doesn't use the others. The login also asks for `offline`, which lets the server renew its Whoop access without you logging in again; the dashboard doesn't list it.
-   - **Webhooks**: leave empty.
-2. Paste its **Client ID** and **Client Secret** into the `WHOOP_CLIENT_ID` and `WHOOP_CLIENT_SECRET` variables, and deploy the change. The set-up page then shows the next step.
+   - **Redirect URLs**: your server's callback, `https://your-app.up.railway.app/callback`, exactly as the set-up page shows it.
+   - **Scopes**: `read:recovery`, `read:cycles`, `read:sleep` and `read:workout`. The server doesn't use the others. The login also asks for `offline`, which lets the server renew its Whoop access without you logging in again; the dashboard doesn't list it.
+   - **Webhooks**: skip it.
+
+   Click **Create App**: Whoop shows the app's **Client ID** and **Client Secret**.
+2. In the service's **Variables** tab, replace `paste-after-deploy` in `WHOOP_CLIENT_ID` with the Client ID and in `WHOOP_CLIENT_SECRET` with the Client Secret, then click **Deploy** at the top. The set-up page then shows the next step.
 
 If you add a custom domain later, open the set-up page again: if the Redirect URL it shows changed, update it in your Whoop app, or set `WHOOP_REDIRECT_URI`.
 
@@ -76,8 +83,8 @@ Add your server's address, `https://your-app.up.railway.app/mcp`, to your AI app
 
 ### 4. Connect your Whoop account
 
-1. In a chat, ask your AI to connect Whoop. It calls `get_auth_url` and gives you a link.
-2. Open the link, log in to Whoop, and authorize the app. You're redirected back, and your AI can answer right away.
+1. In a chat, ask your AI about your recovery. The first answer is a Whoop link (it calls `get_auth_url`).
+2. Open the link, log in to Whoop, and approve the app, once. You're redirected back, and your AI answers from then on.
 3. Ask away: "How did I sleep last night?"
 
 ## Upgrading to 1.3.0
@@ -210,7 +217,7 @@ To run your own changes, fork this repository and deploy the fork instead of the
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `WHOOP_CLIENT_ID` | Whoop OAuth client ID | Needed to connect Whoop. Until both are set, the set-up page at `/` shows the steps |
+| `WHOOP_CLIENT_ID` | Whoop OAuth client ID | Needed to connect Whoop. Until both are set, the set-up page at `/` shows the steps; `paste-after-deploy` counts as unset |
 | `WHOOP_CLIENT_SECRET` | Whoop OAuth client secret | As above |
 | `WHOOP_REDIRECT_URI` | OAuth callback URL | `PUBLIC_URL` + `/callback`; on Railway `https://<the service's domain>/callback`; else `http://localhost:3000/callback` |
 | `MCP_AUTH_PASSWORD` | Password for the sign-in page that protects `/mcp` (16+ characters) | Required in `http` mode |

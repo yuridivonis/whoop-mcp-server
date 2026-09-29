@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Response } from 'express';
 import type { AuthorizationParams } from '@modelcontextprotocol/sdk/server/auth/provider.js';
 import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
@@ -41,8 +42,12 @@ const ICONS = {
 	eye: '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
 };
 
-/** The server's page shell: the sign-in pages and the set-up page share it. */
-export function page(title: string, body: string): string {
+/**
+ * The server's page shell: the sign-in pages and the set-up page share it. A script goes
+ * at the end of the body, and only with its hash in the Content-Security-Policy (see send).
+ */
+export function page(title: string, body: string, script = ''): string {
+	if (/<\/script/i.test(script)) throw new Error('The page script must not contain </script');
 	return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -102,10 +107,18 @@ export function page(title: string, body: string): string {
   /* The set-up page only (.setup), so the sign-in page keeps its own sizes. */
   .setup h2 { font-size: 1rem; font-weight: 700; margin: 22px 0 8px; }
   .setup p, .setup ul { font-size: 0.92rem; line-height: 1.5; margin-bottom: 10px; overflow-wrap: anywhere; }
+  .setup ol { font-size: 0.92rem; line-height: 1.5; margin-bottom: 10px; padding-left: 20px; overflow-wrap: anywhere; }
   .setup ul { padding-left: 20px; }
   .setup li + li { margin-top: 4px; }
   .setup code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; background: var(--accent-soft); color: var(--accent-strong); border-radius: 6px; padding: 2px 6px; }
-  .setup .box code { display: block; padding: 10px 12px; font-size: 0.88rem; }
+  /* The fields of WHOOP's New App form, in its order and with its labels. */
+  .setup .fields { margin: 0 0 12px; }
+  .setup .fields dt { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); margin-top: 12px; }
+  .setup .fields dd { font-size: 0.92rem; line-height: 1.5; margin: 3px 0 0; overflow-wrap: anywhere; }
+  /* A value to paste, with its Copy button (shown by the script); a click selects the whole value. */
+  .setup .box { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0 10px; }
+  .setup .box code { flex: 1 1 200px; padding: 10px 12px; font-size: 0.88rem; -webkit-user-select: all; user-select: all; }
+  .setup .box button { width: auto; height: 36px; padding: 0 14px; font-size: 0.85rem; border-radius: 9px; flex: none; }
   .setup .note { color: var(--muted); font-size: 0.85rem; }
   .setup a, footer a { color: var(--accent-strong); }
   @media (max-width: 480px) {
@@ -120,14 +133,19 @@ export function page(title: string, body: string): string {
   <div class="brand"><span class="mark" aria-hidden="true">${ICONS.mark}</span>Whoop MCP Server</div>
 ${body}
 </main>
-</body>
+${script ? `<script>${script}</script>\n` : ''}</body>
 </html>`;
 }
 
-export function send(res: Response, status: number, html: string): void {
+/**
+ * SECURITY: these pages must never be framed (clickjacking) or cached with their
+ * parameters, and they run no script other than the one given, which page() inlined:
+ * the policy allows it by hash, so header and body can't drift apart.
+ */
+export function send(res: Response, status: number, html: string, options: { script?: string } = {}): void {
 	res.setHeader('Content-Type', 'text/html; charset=utf-8');
-	// SECURITY: these pages must never be framed (clickjacking) or cached with their parameters.
-	res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'");
+	const script = options.script ? ` script-src 'sha256-${createHash('sha256').update(options.script).digest('base64')}';` : '';
+	res.setHeader('Content-Security-Policy', `default-src 'none'; style-src 'unsafe-inline';${script} frame-ancestors 'none'`);
 	res.setHeader('X-Frame-Options', 'DENY');
 	res.setHeader('Referrer-Policy', 'no-referrer');
 	res.setHeader('Cache-Control', 'no-store');

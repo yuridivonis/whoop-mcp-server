@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.4.3] - 2026-09-29
+
+The set-up page follows Whoop's form, and a deployment can ship the two Whoop variables ready to fill in. Nothing to do when upgrading: redeploy, or let Railway's auto updates do it.
+
+### Changed
+
+- **The set-up page walks through Whoop's New App form** in the form's own order, with a Copy button on each value to paste, and its second step edits the two Whoop variables instead of creating them: `paste-after-deploy` in `WHOOP_CLIENT_ID` or `WHOOP_CLIENT_SECRET` counts as unset, so a deployment can ship them ready to fill in. Once the app is configured, the page says that the first question to your AI returns the Whoop link to approve. The page runs exactly one script, its Copy buttons, allowed by hash in its Content-Security-Policy; the sign-in pages still run none.
+
 ## [1.4.2] - 2026-09-28
 
 Setting up is shorter: the server works out its own addresses, and a page at its root shows what's left to do. Nothing to do when upgrading: redeploy, or let Railway's auto updates do it. If you deployed a pinned tag such as `:1.4.1` following an earlier README, change the Service Source to `:1` once, so future releases reach you.
@@ -182,6 +190,7 @@ Upgrading takes a few minutes: see [Upgrading from 1.0.0](README.md#upgrading-fr
 
 Initial release: a remote MCP server with Whoop recovery, sleep, and strain tools, a local SQLite cache, and Railway deployment.
 
+[1.4.3]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.3
 [1.4.2]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.2
 [1.4.1]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.1
 [1.4.0]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.0

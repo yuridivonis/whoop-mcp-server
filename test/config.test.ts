@@ -149,6 +149,10 @@ describe('whoopConfigured', () => {
 		assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: '', WHOOP_CLIENT_SECRET: 'secret' }).whoopConfigured, false);
 		assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: 'id', WHOOP_CLIENT_SECRET: '' }).whoopConfigured, false);
 		assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: '  ', WHOOP_CLIENT_SECRET: 'secret' }).whoopConfigured, false);
+		assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: 'id', WHOOP_CLIENT_SECRET: ' PASTE-AFTER-DEPLOY' }).whoopConfigured, false, 'the placeholder counts as unset');
+		assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: 'paste-after-deploy', WHOOP_CLIENT_SECRET: 'secret' }).whoopConfigured, false);
+		const placeholder = loadConfig({ ...base, WHOOP_CLIENT_ID: 'paste-after-deploy', WHOOP_CLIENT_SECRET: 'Paste-After-Deploy' });
+		assert.deepEqual([placeholder.clientId, placeholder.clientSecret], ['', ''], 'the placeholder is no credential');
 		assert.equal(loadConfig(base).whoopConfigured, false);
 	});
 });

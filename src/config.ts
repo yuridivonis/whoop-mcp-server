@@ -97,11 +97,23 @@ function defaultRedirectUri(env: NodeJS.ProcessEnv, mode: 'http' | 'stdio'): str
 	return 'http://localhost:3000/callback';
 }
 
+/**
+ * The value a deployment can give WHOOP_CLIENT_ID and WHOOP_CLIENT_SECRET before the WHOOP
+ * app exists, so the owner edits a variable instead of creating one. It counts as unset.
+ */
+export const PLACEHOLDER = 'paste-after-deploy';
+
+/** Whether a WHOOP app value has been filled in: not empty, and not the placeholder. */
+function isSet(value: string | undefined): boolean {
+	const trimmed = (value ?? '').trim();
+	return trimmed !== '' && trimmed.toLowerCase() !== PLACEHOLDER;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 	const mode = env.MCP_MODE === 'stdio' ? 'stdio' : 'http';
 	const redirectUri = env.WHOOP_REDIRECT_URI ?? defaultRedirectUri(env, mode);
 	const authPassword = env.MCP_AUTH_PASSWORD ?? '';
-	const whoopConfigured = (env.WHOOP_CLIENT_ID ?? '').trim() !== '' && (env.WHOOP_CLIENT_SECRET ?? '').trim() !== '';
+	const whoopConfigured = isSet(env.WHOOP_CLIENT_ID) && isSet(env.WHOOP_CLIENT_SECRET);
 
 	if (mode === 'http') {
 		// Both addresses must be http(s) with a real host. The URL parser is lenient: a
@@ -150,8 +162,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 	}
 
 	return {
-		clientId: env.WHOOP_CLIENT_ID ?? '',
-		clientSecret: env.WHOOP_CLIENT_SECRET ?? '',
+		// The placeholder never reaches WHOOP as a credential: it's unset here as well.
+		clientId: isSet(env.WHOOP_CLIENT_ID) ? env.WHOOP_CLIENT_ID! : '',
+		clientSecret: isSet(env.WHOOP_CLIENT_SECRET) ? env.WHOOP_CLIENT_SECRET! : '',
 		whoopConfigured,
 		redirectUri,
 		dbPath: env.DB_PATH ?? './whoop.db',

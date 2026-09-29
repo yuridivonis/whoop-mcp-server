@@ -15,6 +15,9 @@ const IV_LENGTH = 16;
 let cachedKey: { secret: string; key: Buffer } | null = null;
 
 function getEncryptionKey(): Buffer {
+	// Before the WHOOP app is configured, WHOOP_CLIENT_SECRET may be the set-up placeholder
+	// (see config.ts). Nothing is encrypted until then: tokens only arrive after get_auth_url,
+	// which the server refuses until both values are real.
 	const secret = process.env.ENCRYPTION_SECRET || process.env.WHOOP_CLIENT_SECRET;
 	if (!secret) {
 		throw new Error('No encryption secret available');

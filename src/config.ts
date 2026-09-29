@@ -104,10 +104,13 @@ function defaultRedirectUri(env: NodeJS.ProcessEnv, mode: 'http' | 'stdio'): str
  */
 export const PLACEHOLDERS = { clientId: 'replace-with-your-client-id', clientSecret: 'replace-with-your-client-secret' };
 
-/** Whether a WHOOP app value has been filled in: not empty, and not a placeholder. */
+/**
+ * Whether a WHOOP app value has been filled in: not empty, and no placeholder left in it
+ * (a paste next to the placeholder instead of over it leaves both).
+ */
 function isSet(value: string | undefined): boolean {
 	const trimmed = (value ?? '').trim().toLowerCase();
-	return trimmed !== '' && !trimmed.startsWith('replace-with') && trimmed !== 'paste-after-deploy';
+	return trimmed !== '' && !trimmed.includes('replace-with') && trimmed !== 'paste-after-deploy';
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -151,9 +154,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 	if (mode === 'http') {
 		// SECURITY: fail closed. Without a password there is no sign-in, and /mcp would
 		// serve health data to anyone who finds the URL.
-		if (authPassword.length < MIN_PASSWORD_LENGTH) {
+		if (authPassword.length < MIN_PASSWORD_LENGTH || authPassword.toLowerCase().startsWith('replace-with')) {
 			throw new ConfigError(
-				`MCP_AUTH_PASSWORD must be set to at least ${MIN_PASSWORD_LENGTH} characters. ` +
+				`MCP_AUTH_PASSWORD must be set to at least ${MIN_PASSWORD_LENGTH} characters, and not the README's example. ` +
 					'Each AI app asks for it once when you connect it. Generate one with: openssl rand -base64 24',
 			);
 		}
@@ -163,9 +166,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 	}
 
 	return {
-		// The placeholder never reaches WHOOP as a credential: it's unset here as well.
-		clientId: isSet(env.WHOOP_CLIENT_ID) ? env.WHOOP_CLIENT_ID! : '',
-		clientSecret: isSet(env.WHOOP_CLIENT_SECRET) ? env.WHOOP_CLIENT_SECRET! : '',
+		// A placeholder never reaches WHOOP as a credential: it's unset here as well. Trimmed,
+		// since a pasted value can bring a space or newline along.
+		clientId: isSet(env.WHOOP_CLIENT_ID) ? env.WHOOP_CLIENT_ID!.trim() : '',
+		clientSecret: isSet(env.WHOOP_CLIENT_SECRET) ? env.WHOOP_CLIENT_SECRET!.trim() : '',
 		whoopConfigured,
 		redirectUri,
 		dbPath: env.DB_PATH ?? './whoop.db',

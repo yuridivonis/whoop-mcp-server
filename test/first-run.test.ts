@@ -153,8 +153,9 @@ describe("the set-up page, before the WHOOP app is configured", () => {
 			assert.ok(body.includes(`<code>${scope}</code>`), scope);
 		}
 		assert.ok(body.includes('Step 2 of 2'));
-		assert.ok(body.includes('<code>WHOOP_CLIENT_ID</code>: paste the Client ID over <code>replace-with-your-client-id</code>.'));
-		assert.ok(body.includes('<code>WHOOP_CLIENT_SECRET</code>: paste the Client Secret over <code>replace-with-your-client-secret</code>.'));
+		assert.ok(body.includes('<code>WHOOP_CLIENT_ID</code>: select <code>replace-with-your-client-id</code> and paste the Client ID over it.'));
+		assert.ok(body.includes('<code>WHOOP_CLIENT_SECRET</code>: select <code>replace-with-your-client-secret</code> and paste the Client Secret over it.'));
+		assert.ok(body.includes('with nothing left of <code>replace-with-…</code>.'));
 		assert.ok(!body.includes('/mcp'));
 		assert.ok(!body.includes('Configure Auto Updates'));
 	});
@@ -174,7 +175,8 @@ describe("the set-up page, before the WHOOP app is configured", () => {
 	});
 
 	it('treats the placeholder the Railway template ships as not configured, whatever its case', async () => {
-		const placeholder = await startTestServer({ env: { WHOOP_CLIENT_ID: 'Replace-With-Your-Client-ID ', WHOOP_CLIENT_SECRET: 'replace-with-your-client-secret' } });
+		// Each value alone would keep the page in set-up, so each needs the case and whitespace handling.
+		const placeholder = await startTestServer({ env: { WHOOP_CLIENT_ID: ' Replace-With-Your-Client-ID', WHOOP_CLIENT_SECRET: ' REPLACE-WITH-YOUR-CLIENT-SECRET' } });
 		try {
 			const { body } = await page(placeholder);
 			assert.ok(body.includes('<h1>Set up your server</h1>'));

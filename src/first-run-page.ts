@@ -113,11 +113,11 @@ ${redirectBox}</dd>
   <h2>Step 2 of 2: give this server the keys</h2>
   <ol>
     <li>On Railway, open the service's <strong>Variables</strong> tab.</li>
-    <li><code>WHOOP_CLIENT_ID</code>: paste the Client ID over <code>${PLACEHOLDERS.clientId}</code>.</li>
-    <li><code>WHOOP_CLIENT_SECRET</code>: paste the Client Secret over <code>${PLACEHOLDERS.clientSecret}</code>.</li>
+    <li><code>WHOOP_CLIENT_ID</code>: select <code>${PLACEHOLDERS.clientId}</code> and paste the Client ID over it.</li>
+    <li><code>WHOOP_CLIENT_SECRET</code>: select <code>${PLACEHOLDERS.clientSecret}</code> and paste the Client Secret over it.</li>
     <li>Click <strong>Deploy</strong> at the top. When it's done, reload this page: it shows how to connect your AI app.</li>
   </ol>
-  <p class="note">The two variables aren't there? Add them with <strong>New Variable</strong>. Not on Railway? Set them where you set <code>MCP_AUTH_PASSWORD</code> and restart.</p>
+  <p class="note">The two variables aren't there? Add them with <strong>New Variable</strong>. Not on Railway? Set them where you set <code>MCP_AUTH_PASSWORD</code> and restart. Still seeing this page after the deploy? Each variable must hold WHOOP's value alone, with nothing left of <code>replace-with-…</code>.</p>
   </div>`;
 
 	return page('Set-up', `${body}

@@ -71,7 +71,7 @@ Your server's set-up page, `https://your-app.up.railway.app/`, walks through Who
    - **Webhooks**: skip it.
 
    Click **Create App**: Whoop shows the app's **Client ID** and **Client Secret**.
-2. In the service's **Variables** tab, paste the Client ID over `replace-with-your-client-id` in `WHOOP_CLIENT_ID` and the Client Secret over `replace-with-your-client-secret` in `WHOOP_CLIENT_SECRET`, then click **Deploy** at the top. The set-up page then shows the next step.
+2. In the service's **Variables** tab, select `replace-with-your-client-id` in `WHOOP_CLIENT_ID` and paste the Client ID over it; the same for `replace-with-your-client-secret` in `WHOOP_CLIENT_SECRET`; then click **Deploy** at the top. The set-up page then shows the next step.
 
 If you add a custom domain later, open the set-up page again: if the Redirect URL it shows changed, update it in your Whoop app, or set `WHOOP_REDIRECT_URI`.
 
@@ -155,10 +155,10 @@ Each release is published as an image for amd64 and arm64 on GitHub's container 
 
 ```bash
 docker run -d --name whoop-mcp -p 3000:3000 -v whoop-data:/data \
-  -e WHOOP_CLIENT_ID=your_client_id \
-  -e WHOOP_CLIENT_SECRET=your_client_secret \
+  -e WHOOP_CLIENT_ID=replace-with-your-client-id \
+  -e WHOOP_CLIENT_SECRET=replace-with-your-client-secret \
   -e WHOOP_REDIRECT_URI=https://your-server.example.com/callback \
-  -e MCP_AUTH_PASSWORD=a-password-of-16-or-more-characters \
+  -e MCP_AUTH_PASSWORD=replace-with-a-password-of-16-or-more-characters \
   ghcr.io/yuridivonis/whoop-mcp-server:1
 ```
 
@@ -181,11 +181,11 @@ npm install
 
 # Create .env file (npm run dev loads it)
 cat > .env << EOF
-WHOOP_CLIENT_ID=your_client_id
-WHOOP_CLIENT_SECRET=your_client_secret
+WHOOP_CLIENT_ID=replace-with-your-client-id
+WHOOP_CLIENT_SECRET=replace-with-your-client-secret
 # Whoop needs an https address: use your tunnel's (see below)
 WHOOP_REDIRECT_URI=https://your-tunnel.example.com/callback
-MCP_AUTH_PASSWORD=choose-a-local-password
+MCP_AUTH_PASSWORD=replace-with-a-password-of-16-or-more-characters
 MCP_MODE=http
 EOF
 
@@ -217,7 +217,7 @@ To run your own changes, fork this repository and deploy the fork instead of the
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `WHOOP_CLIENT_ID` | Whoop OAuth client ID | Needed to connect Whoop. Until both are set, the set-up page at `/` shows the steps; a value starting with `replace-with` counts as unset |
+| `WHOOP_CLIENT_ID` | Whoop OAuth client ID | Needed to connect Whoop. Until both are set, the set-up page at `/` shows the steps; a value containing `replace-with` counts as unset |
 | `WHOOP_CLIENT_SECRET` | Whoop OAuth client secret | As above |
 | `WHOOP_REDIRECT_URI` | OAuth callback URL | `PUBLIC_URL` + `/callback`; on Railway `https://<the service's domain>/callback`; else `http://localhost:3000/callback` |
 | `MCP_AUTH_PASSWORD` | Password for the sign-in page that protects `/mcp` (16+ characters) | Required in `http` mode |

@@ -4,9 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [1.4.4] - 2026-09-29
 
+Placeholders that say what to do. Nothing to do when upgrading: redeploy, or let Railway's auto updates do it. Variables still holding 1.4.3's `paste-after-deploy` work the same: paste over that.
+
 ### Changed
 
-- **Placeholders that say what to do:** the Whoop variables can now hold `replace-with-your-client-id` and `replace-with-your-client-secret` before the app exists; any value starting with `replace-with` counts as unset (1.4.3's `paste-after-deploy` still does). The set-up page and the README say "paste the Client ID over it".
+- **Placeholders that say what to do:** the Whoop variables can hold `replace-with-your-client-id` and `replace-with-your-client-secret` before the app exists. Any value containing `replace-with` counts as unset, so a paste next to the placeholder instead of over it can't reach Whoop either, and the set-up page says what to check; 1.4.3's `paste-after-deploy` still counts. The page reads "select `replace-with-your-client-id` and paste the Client ID over it". Pasted values are trimmed of stray whitespace.
+- **The README's example password is refused:** `MCP_AUTH_PASSWORD` must not start with `replace-with`, the form the Docker and `.env` examples now use, so a copied example never protects a public server.
 
 ## [1.4.3] - 2026-09-29
 

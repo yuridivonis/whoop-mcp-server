@@ -8,7 +8,7 @@ Plainer words on the set-up page. Nothing to do when upgrading: redeploy, or let
 
 ### Changed
 
-- **The set-up page in plain words,** from the first people through the Railway template: it opens with what the five steps get you and asks you to keep the page open; the scopes are drawn as check boxes, four ticked and two left, with why; Logo and Webhooks say they're optional and why; the password line says what it lets happen, and step 5 why Whoop asks you to approve; keeping your data out of model training is stated as Whoop's wish and your call.
+- **The set-up page in plain words,** after watching the first people set up from the Railway template: it opens with what the five steps get you and asks you to keep the page open; the scopes are drawn as check boxes, four ticked and two left unticked, with why, and each says tick or leave for screen readers; Logo says it's optional and Webhooks why it stays empty; the password line says what it lets happen, and step 5 that the Whoop link is where you let the server read your data; the model-training paragraph says what Whoop's terms forbid and which switches keep your data out.
 
 ## [1.4.5] - 2026-09-29
 

@@ -62,6 +62,7 @@ export function page(title: string, body: string, script = ''): string {
     --bg: #f3f4f8; --card: #ffffff; --text: #111827; --muted: #5b6475; --faint: #667085; --border: #e2e5ee;
     --field: #ffffff; --accent: #4f46e5; --accent-strong: #4338ca; --on-accent: #ffffff; --accent-soft: #eef0ff;
     --warn-bg: #fff7e8; --warn-edge: #f0a927; --warn-text: #6b4300; --error-bg: #fdecec; --error: #b42318;
+    --ok: #15803d; --on-ok: #ffffff;
     --shadow: 0 1px 2px rgba(17, 24, 39, 0.04), 0 12px 32px rgba(17, 24, 39, 0.08);
   }
   @media (prefers-color-scheme: dark) {
@@ -70,6 +71,7 @@ export function page(title: string, body: string, script = ''): string {
       --bg: #0a0c11; --card: #13161e; --text: #eceff5; --muted: #a0a8b8; --faint: #8892a6; --border: #252a36;
       --field: #0e1118; --accent: #8e8cff; --accent-strong: #a9a7ff; --on-accent: #0a0c11; --accent-soft: #1e2140;
       --warn-bg: #251d0e; --warn-edge: #d2911f; --warn-text: #f4d38e; --error-bg: #3a1414; --error: #fca5a5;
+      --ok: #15803d; --on-ok: #ffffff;
       --shadow: none;
     }
   }
@@ -124,11 +126,13 @@ export function page(title: string, body: string, script = ''): string {
   .setup .journey h2 { margin: 0 0 6px; line-height: 24px; }
   .setup .journey ol { margin-bottom: 8px; }
   /* WHOOP's scopes as check boxes: the four to tick, the two to leave. */
-  .setup .scopes { list-style: none; padding: 0; margin: 8px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px 12px; }
+  .setup .scopes { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 6px; }
   .setup .scopes li { display: flex; align-items: center; gap: 8px; margin: 0; }
   .setup .scopes li::before { content: ""; flex: none; width: 18px; height: 18px; border-radius: 5px; border: 2px solid var(--faint); background: var(--field); }
-  .setup .scopes li.on::before { content: "\\2713"; display: grid; place-items: center; font-size: 0.8rem; font-weight: 700; color: #ffffff; background: #16a34a; border-color: #16a34a; }
-  .setup .scopes li.off code { color: var(--muted); background: transparent; padding-left: 0; }
+  .setup .scopes li.on::before { content: "\\2713"; content: "\\2713" / ""; display: grid; place-items: center; font-size: 0.8rem; font-weight: 700; color: var(--on-ok); background: var(--ok); border-color: var(--ok); }
+  .setup .scopes li.off code { color: var(--muted); background: transparent; }
+  /* Words for screen readers only: the boxes are drawn, so each scope also says tick or leave. */
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   /* The fields of WHOOP's New App form, in its order and with its labels. */
   .setup .fields { margin: 0 0 12px; }
   .setup .fields dt { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); margin-top: 12px; }

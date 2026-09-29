@@ -77,7 +77,8 @@ describe('the set-up page, once the WHOOP app is configured', () => {
 		assert.ok(body.includes('<code>MCP_AUTH_PASSWORD</code>'));
 		assert.ok(body.includes('<dt>Claude</dt>') && body.includes('<dt>ChatGPT</dt>'));
 		assertPathsMatchTheDoc(body);
-		assert.ok(body.indexOf('keep your WHOOP data out of model training') < body.indexOf('<dt>Claude</dt>'), 'the opt-outs come before the paths');
+		const training = body.indexOf('Keep your WHOOP data out of model training');
+		assert.ok(training >= 0 && training < body.indexOf('<dt>Claude</dt>'), 'the opt-outs come before the paths');
 		assert.ok(body.includes('The first answer is a WHOOP link'));
 		assert.ok(body.includes('Configure Auto Updates'));
 		assert.ok(body.includes('With Docker, pull <code>:1</code> again and restart. With a fork, sync it and redeploy.'));
@@ -205,10 +206,15 @@ describe("the set-up page, before the WHOOP app is configured", () => {
 		const labels = [...body.matchAll(/<dt>([^<]+)<\/dt>/g)].map(match => match[1]);
 		assert.deepEqual(labels, ['Name', 'Logo', 'Contacts', 'Privacy Policy', 'Redirect URLs', 'Scopes', 'Webhooks', 'Claude', 'ChatGPT', 'Other apps'], "WHOOP's form in its order, then the apps");
 		assert.deepEqual(boxes(body), ['https://github.com/yuridivonis/whoop-mcp-server/blob/main/PRIVACY.md', `${server.baseUrl}/callback`, `${server.baseUrl}/mcp`]);
-		assert.ok(body.indexOf('Create App') < body.indexOf('<h2>Give this server the keys</h2>'), 'the keys come after the app exists');
-		const scopes = [...body.matchAll(/<li class="(on|off)"><code>([^<]+)<\/code><\/li>/g)].map(match => `${match[1]}:${match[2]}`);
-		assert.deepEqual(scopes, ['on:read:recovery', 'on:read:cycles', 'on:read:sleep', 'on:read:workout', 'off:read:profile', 'off:read:body_measurement'], 'the scopes as check boxes, in WHOOP\'s order');
+		const createApp = body.indexOf('Create App');
+		assert.ok(createApp >= 0 && createApp < body.indexOf('<h2>Give this server the keys</h2>'), 'the keys come after the app exists');
+		const scopes = [...body.matchAll(/<li class="(on|off)"><span class="sr">(Tick|Leave unticked) <\/span><code>([^<]+)<\/code><\/li>/g)].map(match => {
+			assert.equal(match[2], match[1] === 'on' ? 'Tick' : 'Leave unticked', `${match[3]}: the words for screen readers match the box`);
+			return `${match[1]}:${match[3]}`;
+		});
+		assert.deepEqual(scopes, ['on:read:recovery', 'on:read:cycles', 'on:read:sleep', 'on:read:workout', 'off:read:profile', 'off:read:body_measurement'], 'the four to tick, then the two to leave');
 		assert.ok(body.includes('Keep this page open until the end'));
+		assert.ok(body.includes("<strong>Keep your WHOOP data out of model training.</strong> WHOOP's terms forbid using it to train AI"), 'the terms, not a preference');
 	});
 
 	it('runs only the Copy script here too', async () => {

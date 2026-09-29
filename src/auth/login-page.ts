@@ -123,6 +123,12 @@ export function page(title: string, body: string, script = ''): string {
   .setup .journey > li.todo h2 { color: var(--muted); }
   .setup .journey h2 { margin: 0 0 6px; line-height: 24px; }
   .setup .journey ol { margin-bottom: 8px; }
+  /* WHOOP's scopes as check boxes: the four to tick, the two to leave. */
+  .setup .scopes { list-style: none; padding: 0; margin: 8px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px 12px; }
+  .setup .scopes li { display: flex; align-items: center; gap: 8px; margin: 0; }
+  .setup .scopes li::before { content: ""; flex: none; width: 18px; height: 18px; border-radius: 5px; border: 2px solid var(--faint); background: var(--field); }
+  .setup .scopes li.on::before { content: "\\2713"; display: grid; place-items: center; font-size: 0.8rem; font-weight: 700; color: #ffffff; background: #16a34a; border-color: #16a34a; }
+  .setup .scopes li.off code { color: var(--muted); background: transparent; padding-left: 0; }
   /* The fields of WHOOP's New App form, in its order and with its labels. */
   .setup .fields { margin: 0 0 12px; }
   .setup .fields dt { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); margin-top: 12px; }

@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.4.6] - 2026-09-29
+
+Plainer words on the set-up page. Nothing to do when upgrading: redeploy, or let Railway's auto updates do it.
+
+### Changed
+
+- **The set-up page in plain words,** from the first people through the Railway template: it opens with what the five steps get you and asks you to keep the page open; the scopes are drawn as check boxes, four ticked and two left, with why; Logo and Webhooks say they're optional and why; the password line says what it lets happen, and step 5 why Whoop asks you to approve; keeping your data out of model training is stated as Whoop's wish and your call.
+
 ## [1.4.5] - 2026-09-29
 
 The set-up page is the whole journey on one page. Nothing to do when upgrading: redeploy, or let Railway's auto updates do it.
@@ -211,6 +219,7 @@ Upgrading takes a few minutes: see [Upgrading from 1.0.0](README.md#upgrading-fr
 
 Initial release: a remote MCP server with Whoop recovery, sleep, and strain tools, a local SQLite cache, and Railway deployment.
 
+[1.4.6]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.6
 [1.4.5]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.5
 [1.4.4]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.4
 [1.4.3]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.3

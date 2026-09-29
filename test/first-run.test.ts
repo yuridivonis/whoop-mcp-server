@@ -206,7 +206,9 @@ describe("the set-up page, before the WHOOP app is configured", () => {
 		assert.deepEqual(labels, ['Name', 'Logo', 'Contacts', 'Privacy Policy', 'Redirect URLs', 'Scopes', 'Webhooks', 'Claude', 'ChatGPT', 'Other apps'], "WHOOP's form in its order, then the apps");
 		assert.deepEqual(boxes(body), ['https://github.com/yuridivonis/whoop-mcp-server/blob/main/PRIVACY.md', `${server.baseUrl}/callback`, `${server.baseUrl}/mcp`]);
 		assert.ok(body.indexOf('Create App') < body.indexOf('<h2>Give this server the keys</h2>'), 'the keys come after the app exists');
-		assert.ok(body.includes('Not <code>read:profile</code> or <code>read:body_measurement</code>.'), 'names the scopes to leave');
+		const scopes = [...body.matchAll(/<li class="(on|off)"><code>([^<]+)<\/code><\/li>/g)].map(match => `${match[1]}:${match[2]}`);
+		assert.deepEqual(scopes, ['on:read:recovery', 'on:read:cycles', 'on:read:sleep', 'on:read:workout', 'off:read:profile', 'off:read:body_measurement'], 'the scopes as check boxes, in WHOOP\'s order');
+		assert.ok(body.includes('Keep this page open until the end'));
 	});
 
 	it('runs only the Copy script here too', async () => {

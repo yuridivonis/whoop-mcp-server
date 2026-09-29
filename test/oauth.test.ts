@@ -353,7 +353,7 @@ describe('consent to share WHOOP data', () => {
 		for (const page of pages) {
 			// Exactly this policy: no script-src, unlike the set-up page, and no script in the body.
 			assert.equal(page.headers.get('content-security-policy'), "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'");
-			assert.doesNotMatch(await page.clone().text(), /<script/i);
+			assert.doesNotMatch(await page.clone().text(), /<script|http-equiv/i);
 			assert.equal(page.headers.get('x-frame-options'), 'DENY');
 			assert.equal(page.headers.get('cache-control'), 'no-store');
 			assert.equal(page.headers.get('referrer-policy'), 'no-referrer');

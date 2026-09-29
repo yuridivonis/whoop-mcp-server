@@ -2,6 +2,7 @@ import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { Script } from 'node:vm';
+import { readFileSync } from 'node:fs';
 import { COPY_SCRIPT, REFRESH_SECONDS } from '../src/first-run-page.js';
 import { SERVER_VERSION } from '../src/tools.js';
 import { PASSWORD, mcpRequest, readRpc, signIn, startTestServer, type TestServer } from './helpers.js';
@@ -35,9 +36,23 @@ function boxes(body: string): string[] {
 	return [...body.matchAll(/<p class="box"><code>([^<]+)<\/code><button type="button" data-copy hidden aria-live="polite" aria-label="Copy the [^"]+">Copy<\/button><\/p>/g)].map(match => match[1]);
 }
 
-/** The state of each of the five steps, in page order. */
+/** The state and title of each of the five steps, in page order; the current one is marked for screen readers too. */
 function steps(body: string): string[] {
-	return [...body.matchAll(/<li class="(done|current|todo)">\n\s*<h2>[^<]+<\/h2>/g)].map(match => match[1]);
+	return [...body.matchAll(/<li class="(done|current|todo)"( aria-current="step")?>\n\s*<h2>([^<]+)<\/h2>/g)].map(match => {
+		assert.equal(match[2] !== undefined, match[1] === 'current', `${match[3]}: aria-current marks exactly the current step`);
+		return `${match[1]}:${match[3]}`;
+	});
+}
+
+const JOURNEY = ['Server running', 'Create your WHOOP app', 'Give this server the keys', 'Connect your AI app', 'Ask your first question'];
+
+/** The click paths on the page must be the ones in docs/add-to-your-ai.md, which is checked against the vendors' docs. */
+function assertPathsMatchTheDoc(body: string): void {
+	const doc = readFileSync(new URL('../docs/add-to-your-ai.md', import.meta.url), 'utf8');
+	for (const label of ['Customize → Connectors', 'Add custom connector', 'Create MCP App', 'Developer mode', 'Settings → Security and login', 'Dynamic client registration', 'Help Improve our AI models', 'Improve the model for everyone']) {
+		assert.ok(body.includes(label), `page: ${label}`);
+		assert.ok(doc.includes(label), `doc: ${label}`);
+	}
 }
 
 async function page(server: TestServer): Promise<{ res: Response; body: string }> {
@@ -57,15 +72,16 @@ describe('the set-up page, once the WHOOP app is configured', () => {
 		assert.equal(res.status, 200);
 		assert.match(res.headers.get('content-type') ?? '', /^text\/html/);
 		assert.ok(body.includes('<h1>Your server is ready</h1>'));
-		assert.deepEqual(steps(body), ['done', 'done', 'done', 'current', 'todo']);
+		assert.deepEqual(steps(body), JOURNEY.map((title, i) => `${i < 3 ? 'done' : i === 3 ? 'current' : 'todo'}:${title}`));
 		assert.ok(body.includes(`<code>${server.baseUrl}/mcp</code>`));
 		assert.ok(body.includes('<code>MCP_AUTH_PASSWORD</code>'));
-		assert.ok(body.includes('<dt>Claude</dt>') && body.includes('Add custom connector'));
-		assert.ok(body.includes('<dt>ChatGPT</dt>') && body.includes('Create MCP App'));
+		assert.ok(body.includes('<dt>Claude</dt>') && body.includes('<dt>ChatGPT</dt>'));
+		assertPathsMatchTheDoc(body);
+		assert.ok(body.indexOf('keep your WHOOP data out of model training') < body.indexOf('<dt>Claude</dt>'), 'the opt-outs come before the paths');
 		assert.ok(body.includes('The first answer is a WHOOP link'));
 		assert.ok(body.includes('Configure Auto Updates'));
 		assert.ok(body.includes('With Docker, pull <code>:1</code> again and restart. With a fork, sync it and redeploy.'));
-		assert.ok(!body.includes('http-equiv="refresh"'), 'nothing left to wait for');
+		assert.ok(!body.includes('<ol data-wait>'), 'nothing left to wait for, so no reload');
 		assert.ok(body.includes('Both keys are in.'));
 	});
 
@@ -156,12 +172,15 @@ describe("the set-up page, before the WHOOP app is configured", () => {
 		const { res, body } = await page(server);
 		assert.equal(res.status, 200);
 		assert.ok(body.includes('<h1>Set up your server</h1>'));
-		assert.deepEqual(steps(body), ['done', 'current', 'todo', 'todo', 'todo']);
+		assert.deepEqual(steps(body), JOURNEY.map((title, i) => `${i === 0 ? 'done' : i === 1 ? 'current' : 'todo'}:${title}`));
 		assert.ok(body.includes(`<code>${server.baseUrl}/callback</code>`));
-		assert.ok(body.includes('<h2>Create your WHOOP app</h2>'));
 		assert.ok(body.includes('href="https://developer-dashboard.whoop.com"'));
-		assert.ok(body.includes(`<meta http-equiv="refresh" content="${REFRESH_SECONDS}">`));
-		assert.ok(body.includes(`it reloads every ${REFRESH_SECONDS} seconds`));
+		// The reload runs only while the tab is hidden, from the one script, and only on a waiting page.
+		assert.ok(body.includes('<ol data-wait>'));
+		assert.ok(!body.includes('http-equiv'), 'no meta refresh: it would restart screen readers and drop selections');
+		assert.ok(COPY_SCRIPT.includes(`if (document.hidden) location.reload(); }, ${REFRESH_SECONDS * 1000});`));
+		assert.ok(REFRESH_SECONDS >= 10, 'no reload loop');
+		assert.ok(body.includes('An error page instead means the new deploy is still starting'));
 		for (const scope of ['read:recovery', 'read:cycles', 'read:sleep', 'read:workout']) {
 			assert.ok(body.includes(`<code>${scope}</code>`), scope);
 		}
@@ -170,9 +189,15 @@ describe("the set-up page, before the WHOOP app is configured", () => {
 		assert.ok(body.includes('<code>WHOOP_CLIENT_SECRET</code>: select <code>replace-with-your-client-secret</code> and paste the Client Secret over it.'));
 		assert.ok(body.includes('with nothing left of <code>replace-with-…</code>.'));
 		assert.ok(body.includes(`<code>${server.baseUrl}/mcp</code>`), 'the address is on the page from the start');
-		assert.ok(body.includes('After step 3. The address won\'t change.'));
-		assert.ok(body.includes('<dt>Claude</dt>') && body.includes('<dt>ChatGPT</dt>'));
+		assert.ok(body.includes("After step 3. Step 3 doesn't change the address."));
+		assertPathsMatchTheDoc(body);
 		assert.ok(!body.includes('Configure Auto Updates'), 'the Later section waits');
+	});
+
+	it('is built from the config alone here too: the request changes nothing', async () => {
+		const plain = (await page(server)).body;
+		const res = await fetch(`${server.baseUrl}/?next=https://evil.example/<script>`, { headers: { Host: 'evil.example' } });
+		assert.equal(await res.text(), plain);
 	});
 
 	it("walks through WHOOP's New App form in its order, with a Copy button on each value to paste", async () => {

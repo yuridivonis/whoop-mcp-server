@@ -115,7 +115,10 @@ describe('README', () => {
 		const readme = read('README.md');
 		assert.ok(readme.includes('[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/rt-2HZ?referralCode=U4Y3-R&utm_medium=integration&utm_source=button&utm_campaign=whoop-mcp-server)'));
 		assert.match(readme, /Tested live on \d{4}-\d{2}-\d{2}\./);
-		assert.match(readme, /referral code/, 'the kickback and the referral are disclosed');
+		const disclosure = readme.indexOf('Railway pays template creators a share of what deployments spend, and the link carries a referral code');
+		assert.ok(disclosure > 0, 'the kickback and the referral are disclosed');
+		assert.ok(disclosure < readme.indexOf('railway.com/button.svg'), 'before the button');
+		assert.ok(readme.indexOf('railway.com/button.svg') < readme.indexOf('### 1. Deploy'), 'the button comes first in Setup');
 	});
 
 	it('deploys the :1 tag everywhere, which moves with every 1.x release, and pins no version', () => {

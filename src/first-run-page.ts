@@ -7,14 +7,18 @@ const PRIVACY = `${REPO}/blob/main/PRIVACY.md`;
 const ADD_TO_YOUR_AI = `${REPO}/blob/main/docs/add-to-your-ai.md`;
 const DASHBOARD = 'https://developer-dashboard.whoop.com';
 
-/** How often the page reloads itself while steps are pending, so a finished deploy ticks them off. */
+/** How often the page checks for the keys while it's waiting for them and its tab is hidden. */
 export const REFRESH_SECONDS = 30;
 
 /**
- * The Copy buttons. They start hidden and appear only once this runs, so without scripts
- * the page still reads well and each value box selects whole on a click. The script is
- * static (nothing from the config goes in), so its hash is fixed, and the page's
- * Content-Security-Policy allows exactly this script and nothing else (see send).
+ * The page's only script: the Copy buttons, and the reload while the keys are awaited.
+ *
+ * The buttons start hidden and appear only once this runs, so without scripts the page
+ * still reads well and each value box selects whole on a click. The reload happens only
+ * while the tab is hidden (never under a reader, a selection or a screen reader), and only
+ * on a page that marks itself as waiting. The script is static (nothing from the config
+ * goes in), so its hash is fixed, and the Content-Security-Policy allows exactly this script
+ * and nothing else (see send).
  */
 export const COPY_SCRIPT = `for (const button of document.querySelectorAll('button[data-copy]')) {
   const value = button.previousElementSibling;
@@ -34,6 +38,9 @@ export const COPY_SCRIPT = `for (const button of document.querySelectorAll('butt
     clearTimeout(timer);
     timer = setTimeout(() => { button.textContent = label; }, 2000);
   });
+}
+if (document.querySelector('[data-wait]')) {
+  setInterval(() => { if (document.hidden) location.reload(); }, ${REFRESH_SECONDS * 1000});
 }`;
 
 /**
@@ -52,11 +59,12 @@ export function publicRedirectUri(redirectUri: string): URL {
 
 /**
  * The page at /: the whole journey from a running server to the first answer, as five
- * steps on one page, with the done ones ticked and the current one open. Before the WHOOP
- * app is configured it walks through WHOOP's New App form in the form's own order and
- * reloads itself until the keys are in; after, it shows how to connect an AI app and what
- * the first question does. Nothing is hidden until later: the connector address is on the
- * page from the start, marked for its step.
+ * steps on one page, with the done ones ticked and the current one marked. Before the WHOOP
+ * app is configured it walks through WHOOP's New App form in the form's own order and, while
+ * its tab is hidden, reloads until the keys are in; after, it shows how to connect an AI app
+ * and what the first question does. Nothing is hidden until later: the connector address is
+ * on the page from the start, marked for its step. Steps 4 and 5 happen in the AI app, so the
+ * page never ticks them: it shows no connection state.
  *
  * SECURITY: it's public, and built from the config alone (nothing from the request). It
  * shows addresses, and whether the two WHOOP app variables are set: never a secret, the
@@ -71,7 +79,7 @@ export function renderFirstRunPage(config: Pick<Config, 'redirectUri' | 'publicU
 		`<p class="box"><code>${escapeHtml(value)}</code><button type="button" data-copy hidden aria-live="polite" aria-label="Copy the ${what}">Copy</button></p>`;
 	const step = (n: number, title: string, body: string) => {
 		const state = configured ? (n <= 3 ? 'done' : n === 4 ? 'current' : 'todo') : (n === 1 ? 'done' : n === 2 ? 'current' : 'todo');
-		return `    <li class="${state}">
+		return `    <li class="${state}"${state === 'current' ? ' aria-current="step"' : ''}>
       <h2>${title}</h2>
 ${body}
     </li>`;
@@ -112,24 +120,25 @@ ${redirectBox}</dd>
 
 	const keys = configured
 		? `      <p>Both keys are in.</p>`
-		: `      <ol>
+		: `      <ol data-wait>
         <li>On Railway, open the service's <strong>Variables</strong> tab.</li>
         <li><code>WHOOP_CLIENT_ID</code>: select <code>${PLACEHOLDERS.clientId}</code> and paste the Client ID over it.</li>
         <li><code>WHOOP_CLIENT_SECRET</code>: select <code>${PLACEHOLDERS.clientSecret}</code> and paste the Client Secret over it.</li>
-        <li>Click <strong>Deploy</strong> at the top. When it's done, this page ticks steps 2 and 3 by itself: it reloads every ${REFRESH_SECONDS} seconds.</li>
+        <li>Click <strong>Deploy</strong> at the top. When it's done, reload this page: steps 2 and 3 tick. (If you left this tab meanwhile, it has reloaded by itself.) An error page instead means the new deploy is still starting: reload in a few seconds.</li>
       </ol>
-      <p class="note">The two variables aren't there? Add them with <strong>New Variable</strong>. Not on Railway? Set them where you set <code>MCP_AUTH_PASSWORD</code> and restart. Still on this step after the deploy? Each variable must hold WHOOP's value alone, with nothing left of <code>replace-with-…</code>.</p>`;
+      <p class="note">The two variables aren't there? Add them with <strong>New Variable</strong>. Not on Railway? Set them where you set <code>MCP_AUTH_PASSWORD</code> and restart. Steps 2 and 3 still unticked a minute after the deploy? Each variable must hold WHOOP's value alone, with nothing left of <code>replace-with-…</code>.</p>`;
 
-	const connect = `${configured ? '' : `      <p class="note">After step 3. The address won't change.</p>\n`}      <p>Add this address to your AI app as a custom connector:</p>
+	const connect = `${configured ? '' : `      <p class="note">After step 3. Step 3 doesn't change the address.</p>\n`}      <p>Add this address to your AI app as a custom connector:</p>
 ${box(new URL('/mcp', config.publicUrl).href, 'server address')}
       <p>It asks for the server password: on Railway, that's the <code>MCP_AUTH_PASSWORD</code> variable in the service's <strong>Variables</strong> tab (click the eye to reveal it).</p>
+      <p>First, keep your WHOOP data out of model training, as WHOOP's terms require: in Claude, turn off <strong>Settings → Privacy → Help Improve our AI models</strong>; in ChatGPT, turn off <strong>Settings → Data controls → Improve the model for everyone</strong>.</p>
       <dl class="fields">
         <dt>Claude</dt>
         <dd>On claude.ai, go to <strong>Customize → Connectors</strong>, click <strong>+</strong>, then <strong>Add custom connector</strong>. Paste the address, name it, click <strong>Add</strong>, then <strong>Connect</strong>: enter the password, tick the box, sign in. In a chat, turn it on under <strong>+ → Connectors</strong>.</dd>
         <dt>ChatGPT</dt>
-        <dd>On the web, go to <strong>Settings → Plugins → Add → Create MCP App</strong> (no such button? Turn on <strong>Developer mode</strong> under <strong>Settings → Security and login</strong>). Name it, set the MCP server URL to the address, choose <strong>OAuth</strong>, and sign in with the password.</dd>
+        <dd>On the web, go to <strong>Settings → Plugins → Add → Create MCP App</strong> (no such button? Turn on <strong>Developer mode</strong> under <strong>Settings → Security and login</strong>). Name it, set the MCP server URL to the address, choose <strong>OAuth</strong> (and <strong>Dynamic client registration</strong>, if asked), sign in with the password and tick the box, then create the app. In a new chat, mention it (<code>@Whoop</code>) and ask.</dd>
         <dt>Other apps</dt>
-        <dd>${link(ADD_TO_YOUR_AI, 'Add to your AI')} has Claude Code, Cursor, VS Code and Windsurf.</dd>
+        <dd>${link(ADD_TO_YOUR_AI, 'Add to your AI')} has Team and Business workspaces, ChatGPT's Memory, Claude Code, Cursor, VS Code and Windsurf.</dd>
       </dl>`;
 
 	const firstQuestion = `      <p>Ask it about your recovery. The first answer is a WHOOP link: open it, log in and approve the app, once. From then on it answers.</p>`;
@@ -143,10 +152,10 @@ ${box(new URL('/mcp', config.publicUrl).href, 'server address')}
 
 	const body = `  <h1>${configured ? 'Your server is ready' : 'Set up your server'}</h1>
   <p class="lede">${configured
-		? 'It runs with your WHOOP app. Two steps left: connect your AI app, then ask.'
-		: 'It\'s running. Four steps left, and this page ticks them off as you go.'}</p>
+		? 'It has your WHOOP app\'s keys. Next: connect your AI app, then ask.'
+		: 'It\'s running. Steps 2 and 3 tick here once the keys are in; steps 4 and 5 happen in your AI app.'}</p>
   <div class="setup">
-  <ol class="journey">
+  <ol class="journey" role="list">
 ${step(1, 'Server running', `      <p>It serves this page.</p>`)}
 ${step(2, 'Create your WHOOP app', whoopApp)}
 ${step(3, 'Give this server the keys', keys)}
@@ -159,9 +168,7 @@ ${later}  </div>
     <p>Open-source project, not affiliated with WHOOP.</p>
   </footer>`;
 
-	// Until the keys are in, the page reloads itself, so the deploy's result shows without a reload.
-	const head = configured ? '' : `<meta http-equiv="refresh" content="${REFRESH_SECONDS}">`;
-	return page('Set-up', body, COPY_SCRIPT, head);
+	return page('Set-up', body, COPY_SCRIPT);
 }
 
 export function sendFirstRunPage(res: Response, config: Pick<Config, 'redirectUri' | 'publicUrl' | 'whoopConfigured'>): void {

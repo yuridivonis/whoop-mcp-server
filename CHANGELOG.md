@@ -12,7 +12,7 @@ The set-up page is the whole journey on one page. Nothing to do when upgrading: 
 
 ### Changed
 
-- **The set-up page shows all five steps, always,** with the done ones ticked and the current one open: server running, create your Whoop app, give the server the keys, connect your AI app, ask your first question. The connector address is on the page from the start, marked for its step; the Claude and ChatGPT click paths are inline; and the page says up front that the first question returns the Whoop link to approve, once. Until the keys are in, the page reloads itself every 30 seconds, so a finished deploy ticks the steps off without anyone reloading.
+- **The set-up page shows all five steps, always,** with the done ones ticked and the current one marked: server running, create your Whoop app, give the server the keys, connect your AI app, ask your first question. The connector address is on the page from the start, marked for its step; the Claude and ChatGPT click paths are inline, with the training opt-outs first; and the page says up front that the first question returns the Whoop link to approve, once. Until the keys are in, the page reloads itself while its tab is hidden, so a finished deploy ticks steps 2 and 3 by the time you come back.
 
 ## [1.4.4] - 2026-09-29
 

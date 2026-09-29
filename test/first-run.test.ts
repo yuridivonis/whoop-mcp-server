@@ -18,7 +18,10 @@ function assertRevealsNothing(body: string): void {
 
 /** The page runs the Copy script and nothing else: the policy names it by hash, and it parses. */
 function assertOnlyTheCopyScript(res: Response, body: string): void {
-	const scripts = [...body.matchAll(/<script\b[^>]*>([^]*?)<\/script\s*>/gi)].map(match => match[1]);
+	// Counted as text, not with a tag regex: a <SCRIPT or <script src=…> in any spelling counts.
+	assert.equal(body.toLowerCase().split('<script').length - 1, 1, 'exactly one script element');
+	const start = body.indexOf('<script>') + '<script>'.length;
+	const scripts = start > '<script>'.length - 1 ? [body.slice(start, body.indexOf('</script>', start))] : [];
 	assert.deepEqual(scripts, [COPY_SCRIPT], 'the script is the static constant, served whole');
 	new Script(COPY_SCRIPT); // throws on a syntax error, which would leave every button hidden
 	const hash = createHash('sha256').update(scripts[0]).digest('base64');

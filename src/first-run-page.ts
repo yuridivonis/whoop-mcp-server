@@ -102,7 +102,7 @@ ${redirectBox}      <p class="note">Check it matches the Redirect URL in your WH
         <dt>Name</dt>
         <dd>Anything, e.g. <code>My MCP server</code>. You see it when you approve the app.</dd>
         <dt>Logo</dt>
-        <dd>Skip it.</dd>
+        <dd>Optional. Skip it, or upload an image to see it on WHOOP's approval screen.</dd>
         <dt>Contacts</dt>
         <dd>Your email. Only WHOOP sees it.</dd>
         <dt>Privacy Policy</dt>
@@ -112,9 +112,18 @@ ${box(PRIVACY, 'privacy policy address')}</dd>
         <dd>This server's callback, exactly:
 ${redirectBox}</dd>
         <dt>Scopes</dt>
-        <dd>Tick <code>read:recovery</code>, <code>read:cycles</code>, <code>read:sleep</code> and <code>read:workout</code>. Not <code>read:profile</code> or <code>read:body_measurement</code>.</dd>
+        <dd>Tick these four and leave the other two unticked: the server reads recovery, strain (WHOOP's cycles), sleep and workouts, and asks for nothing it doesn't use.
+          <ul class="scopes" role="list">
+            <li class="on"><span class="sr">Tick </span><code>read:recovery</code></li>
+            <li class="on"><span class="sr">Tick </span><code>read:cycles</code></li>
+            <li class="on"><span class="sr">Tick </span><code>read:sleep</code></li>
+            <li class="on"><span class="sr">Tick </span><code>read:workout</code></li>
+            <li class="off"><span class="sr">Leave unticked </span><code>read:profile</code></li>
+            <li class="off"><span class="sr">Leave unticked </span><code>read:body_measurement</code></li>
+          </ul>
+        </dd>
         <dt>Webhooks</dt>
-        <dd>Skip it.</dd>
+        <dd>Leave it empty. The server gets your data from WHOOP each time you ask, so WHOOP never has to send it anything.</dd>
       </dl>
       <p>Click <strong>Create App</strong>. WHOOP shows the app's <strong>Client ID</strong> and <strong>Client Secret</strong>: keep that tab open.</p>`;
 
@@ -130,8 +139,8 @@ ${redirectBox}</dd>
 
 	const connect = `${configured ? '' : `      <p class="note">After step 3. Step 3 doesn't change the address.</p>\n`}      <p>Add this address to your AI app as a custom connector:</p>
 ${box(new URL('/mcp', config.publicUrl).href, 'server address')}
-      <p>It asks for the server password: on Railway, that's the <code>MCP_AUTH_PASSWORD</code> variable in the service's <strong>Variables</strong> tab (click the eye to reveal it).</p>
-      <p>First, keep your WHOOP data out of model training, as WHOOP's terms require: in Claude, turn off <strong>Settings → Privacy → Help Improve our AI models</strong>; in ChatGPT, turn off <strong>Settings → Data controls → Improve the model for everyone</strong>.</p>
+      <p>It asks for the server password, which lets your AI app talk to this server: on Railway, that's the <code>MCP_AUTH_PASSWORD</code> variable in the service's <strong>Variables</strong> tab (click the eye to reveal it). Then you let this server read your WHOOP data, on WHOOP's own page: that's the link in step 5.</p>
+      <p><strong>Keep your WHOOP data out of model training.</strong> WHOOP's terms forbid using it to train AI, and your answers pass through your AI app; these switches keep it out. In Claude, turn off <strong>Settings → Privacy → Help Improve our AI models</strong>; in ChatGPT, turn off <strong>Settings → Data controls → Improve the model for everyone</strong>.</p>
       <dl class="fields">
         <dt>Claude</dt>
         <dd>On claude.ai, go to <strong>Customize → Connectors</strong>, click <strong>+</strong>, then <strong>Add custom connector</strong>. Paste the address, name it, click <strong>Add</strong>, then <strong>Connect</strong>: enter the password, tick the box, sign in. In a chat, turn it on under <strong>+ → Connectors</strong>.</dd>
@@ -141,7 +150,7 @@ ${box(new URL('/mcp', config.publicUrl).href, 'server address')}
         <dd>${link(ADD_TO_YOUR_AI, 'Add to your AI')} has Team and Business workspaces, ChatGPT's Memory, Claude Code, Cursor, VS Code and Windsurf.</dd>
       </dl>`;
 
-	const firstQuestion = `      <p>Ask it about your recovery. The first answer is a WHOOP link: open it, log in and approve the app, once. From then on it answers.</p>`;
+	const firstQuestion = `      <p>Ask it about your recovery. The first answer is a WHOOP link, where you let this server read your data: open it, log in and approve the app, once. From then on it answers.</p>`;
 
 	const later = configured
 		? `  <h2>Later</h2>
@@ -152,8 +161,8 @@ ${box(new URL('/mcp', config.publicUrl).href, 'server address')}
 
 	const body = `  <h1>${configured ? 'Your server is ready' : 'Set up your server'}</h1>
   <p class="lede">${configured
-		? 'It has your WHOOP app\'s keys. Next: connect your AI app, then ask.'
-		: 'It\'s running. Steps 2 and 3 tick here once the keys are in; steps 4 and 5 happen in your AI app.'}</p>
+		? 'It has your WHOOP app\'s keys. Two steps to go: connect your AI app, then ask it a question.'
+		: 'Your server is up. Five steps get your AI app talking to your WHOOP data. Keep this page open until the end: steps 2 and 3 tick here once the keys are in; steps 4 and 5 happen in your AI app.'}</p>
   <div class="setup">
   <ol class="journey" role="list">
 ${step(1, 'Server running', `      <p>It serves this page.</p>`)}

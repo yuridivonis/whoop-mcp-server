@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.4.4] - 2026-09-29
+
+Placeholders that say what to do. Nothing to do when upgrading: redeploy, or let Railway's auto updates do it. Variables still holding 1.4.3's `paste-after-deploy` work the same: paste over that.
+
+### Changed
+
+- **Placeholders that say what to do:** the Whoop variables can hold `replace-with-your-client-id` and `replace-with-your-client-secret` before the app exists. Any value containing `replace-with` counts as unset, so a paste next to the placeholder instead of over it can't reach Whoop either, and the set-up page says what to check; 1.4.3's `paste-after-deploy` still counts. The page reads "select `replace-with-your-client-id` and paste the Client ID over it". Pasted values are trimmed of stray whitespace.
+- **The README's example password is refused:** `MCP_AUTH_PASSWORD` must not start with `replace-with`, the form the Docker and `.env` examples now use, so a copied example never protects a public server.
+
 ## [1.4.3] - 2026-09-29
 
 The set-up page follows Whoop's form, and a deployment can ship the two Whoop variables ready to fill in. Nothing to do when upgrading: redeploy, or let Railway's auto updates do it.
@@ -190,6 +199,7 @@ Upgrading takes a few minutes: see [Upgrading from 1.0.0](README.md#upgrading-fr
 
 Initial release: a remote MCP server with Whoop recovery, sleep, and strain tools, a local SQLite cache, and Railway deployment.
 
+[1.4.4]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.4
 [1.4.3]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.3
 [1.4.2]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.2
 [1.4.1]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.1

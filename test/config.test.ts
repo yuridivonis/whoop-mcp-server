@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { ConfigError, loadConfig } from '../src/config.js';
+import { ConfigError, PLACEHOLDERS, loadConfig } from '../src/config.js';
 
 const PASSWORD = 'a-long-enough-password';
 
@@ -10,8 +10,10 @@ describe('loadConfig', () => {
 		assert.throws(() => loadConfig({}), /MCP_AUTH_PASSWORD/);
 	});
 
-	it('refuses a password shorter than 16 characters', () => {
+	it("refuses a password shorter than 16 characters, or the README's example", () => {
 		assert.throws(() => loadConfig({ MCP_AUTH_PASSWORD: 'short' }), /at least 16 characters/);
+		assert.throws(() => loadConfig({ MCP_AUTH_PASSWORD: 'replace-with-a-password-of-16-or-more-characters' }), /not the README's example/);
+		assert.throws(() => loadConfig({ MCP_AUTH_PASSWORD: 'Replace-With-your-own-long-password' }), /not the README's example/);
 	});
 
 	it('does not need a password in stdio mode', () => {
@@ -149,10 +151,19 @@ describe('whoopConfigured', () => {
 		assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: '', WHOOP_CLIENT_SECRET: 'secret' }).whoopConfigured, false);
 		assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: 'id', WHOOP_CLIENT_SECRET: '' }).whoopConfigured, false);
 		assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: '  ', WHOOP_CLIENT_SECRET: 'secret' }).whoopConfigured, false);
-		assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: 'id', WHOOP_CLIENT_SECRET: ' PASTE-AFTER-DEPLOY' }).whoopConfigured, false, 'the placeholder counts as unset');
-		assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: 'paste-after-deploy', WHOOP_CLIENT_SECRET: 'secret' }).whoopConfigured, false);
-		const placeholder = loadConfig({ ...base, WHOOP_CLIENT_ID: 'paste-after-deploy', WHOOP_CLIENT_SECRET: 'Paste-After-Deploy' });
+		assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: 'id', WHOOP_CLIENT_SECRET: ' REPLACE-WITH-YOUR-CLIENT-SECRET' }).whoopConfigured, false, 'a placeholder counts as unset');
+		assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: 'replace-with-your-client-id', WHOOP_CLIENT_SECRET: 'secret' }).whoopConfigured, false);
+		assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: 'replace-with anything', WHOOP_CLIENT_SECRET: 'secret' }).whoopConfigured, false, 'the words are enough');
+		assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: 'replace-with-your-client-id3f0c9a', WHOOP_CLIENT_SECRET: 'secret' }).whoopConfigured, false, 'pasted after the placeholder');
+		assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: '3f0c9areplace-with-your-client-id', WHOOP_CLIENT_SECRET: 'secret' }).whoopConfigured, false, 'pasted before the placeholder');
+		assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: ' Paste-After-Deploy', WHOOP_CLIENT_SECRET: 'secret' }).whoopConfigured, false, "1.4.3's placeholder still counts, in any case");
+		for (const value of Object.values(PLACEHOLDERS)) {
+			assert.equal(loadConfig({ ...base, WHOOP_CLIENT_ID: value, WHOOP_CLIENT_SECRET: value }).whoopConfigured, false, value);
+		}
+		const placeholder = loadConfig({ ...base, WHOOP_CLIENT_ID: 'replace-with-your-client-id', WHOOP_CLIENT_SECRET: 'Replace-With-Your-Client-Secret' });
 		assert.deepEqual([placeholder.clientId, placeholder.clientSecret], ['', ''], 'the placeholder is no credential');
+		const pasted = loadConfig({ ...base, WHOOP_CLIENT_ID: ' 3f0c9a\n', WHOOP_CLIENT_SECRET: 'abc123 ' });
+		assert.deepEqual([pasted.clientId, pasted.clientSecret], ['3f0c9a', 'abc123'], 'pasted whitespace is dropped');
 		assert.equal(loadConfig(base).whoopConfigured, false);
 	});
 });

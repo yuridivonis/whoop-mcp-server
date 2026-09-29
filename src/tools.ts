@@ -15,7 +15,7 @@ import type { UpdateChecker } from './updates.js';
 import { localDate, localTime, wakeDay } from './days.js';
 import { whoopMessage } from './whoop-messages.js';
 
-export const SERVER_VERSION = '1.4.4';
+export const SERVER_VERSION = '1.4.5';
 
 export interface ToolDeps {
 	client: WhoopClient;

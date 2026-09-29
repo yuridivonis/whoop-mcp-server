@@ -111,6 +111,13 @@ describe('documentation links', () => {
 });
 
 describe('README', () => {
+	it('has the Deploy on Railway button, pointing at the published template with the campaign that names this project', () => {
+		const readme = read('README.md');
+		assert.ok(readme.includes('[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/rt-2HZ?referralCode=U4Y3-R&utm_medium=integration&utm_source=button&utm_campaign=whoop-mcp-server)'));
+		assert.match(readme, /Tested live on \d{4}-\d{2}-\d{2}\./);
+		assert.match(readme, /referral code/, 'the kickback and the referral are disclosed');
+	});
+
 	it('deploys the :1 tag everywhere, which moves with every 1.x release, and pins no version', () => {
 		const readme = read('README.md');
 		const tags = [...readme.matchAll(/ghcr\.io\/yuridivonis\/whoop-mcp-server:([\w.-]+)/g)].map(match => match[1]);

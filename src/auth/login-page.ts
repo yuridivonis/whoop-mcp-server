@@ -46,7 +46,7 @@ const ICONS = {
  * The server's page shell: the sign-in pages and the set-up page share it. A script goes
  * at the end of the body, and only with its hash in the Content-Security-Policy (see send).
  */
-export function page(title: string, body: string, script = ''): string {
+export function page(title: string, body: string, script = '', head = ''): string {
 	if (/<\/script/i.test(script)) throw new Error('The page script must not contain </script');
 	return `<!DOCTYPE html>
 <html lang="en">
@@ -55,7 +55,7 @@ export function page(title: string, body: string, script = ''): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <meta name="color-scheme" content="light dark">
-<title>${title} · Whoop MCP Server</title>
+${head ? `${head}\n` : ''}<title>${title} · Whoop MCP Server</title>
 <style>
   :root {
     color-scheme: light;
@@ -111,6 +111,18 @@ export function page(title: string, body: string, script = ''): string {
   .setup ul { padding-left: 20px; }
   .setup li + li { margin-top: 4px; }
   .setup code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; background: var(--accent-soft); color: var(--accent-strong); border-radius: 6px; padding: 2px 6px; }
+  /* The five steps: done ones ticked, the current one marked, a line joining them. */
+  .journey { list-style: none; padding: 0; margin: 4px 0 0; counter-reset: step; }
+  .journey > li { position: relative; margin-left: 11px; padding: 0 0 20px 26px; border-left: 2px solid var(--border); }
+  .journey > li:last-child { border-left-color: transparent; padding-bottom: 4px; }
+  .journey > li::before { counter-increment: step; content: counter(step); position: absolute; left: -13px; top: -1px; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 0.78rem; font-weight: 700; background: var(--card); border: 2px solid var(--border); color: var(--faint); }
+  .journey > li.done { border-left-color: var(--accent); }
+  .journey > li.done::before { content: "\\2713"; background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .journey > li.current::before { border-color: var(--accent); color: var(--accent-strong); }
+  .journey > li.todo::before { border-style: dashed; }
+  .journey > li.todo h2 { color: var(--muted); }
+  .journey h2 { margin: 0 0 6px; line-height: 24px; }
+  .setup .journey ol { margin-bottom: 8px; }
   /* The fields of WHOOP's New App form, in its order and with its labels. */
   .setup .fields { margin: 0 0 12px; }
   .setup .fields dt { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); margin-top: 12px; }

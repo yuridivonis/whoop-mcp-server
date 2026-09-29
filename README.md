@@ -42,6 +42,17 @@ Built on the [Whoop Developer API v2](https://developer.whoop.com/docs/introduct
 
 ## Setup
 
+### Fastest: Deploy on Railway
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/rt-2HZ?referralCode=U4Y3-R&utm_medium=integration&utm_source=button&utm_campaign=whoop-mcp-server)
+
+One click creates a Railway project running the `:1` image with a volume, auto updates and generated secrets; there's nothing to fill in. Tested live on 2026-09-29. Then:
+
+1. Click the service card. Its address is at the top of the **Deployments** tab, `whoop-mcp-server-production-xxxx.up.railway.app`. Open it.
+2. The page walks you through the rest, ticking steps off as you go: create a Whoop developer app (it shows every field), paste the app's two keys over the placeholders in the service's variables, add the address it shows to Claude or ChatGPT, and approve Whoop once on your first question.
+
+The template is published by this project's maintainer. Railway pays template creators a share of what deployments spend, and the link carries a referral code; neither costs you anything extra. Railway's Hobby plan is enough. To set it up by hand instead, or elsewhere, read on.
+
 ### 1. Deploy
 
 Every release is published as a ready-made image, `ghcr.io/yuridivonis/whoop-mcp-server`. Deploy that: there's no need to fork this repository unless you want to change the code (see [Changing the code](#changing-the-code)). The steps below use [Railway](https://railway.com); to run it anywhere else, see [Docker](#docker).
@@ -53,7 +64,7 @@ Every release is published as a ready-made image, `ghcr.io/yuridivonis/whoop-mcp
    - `WHOOP_CLIENT_ID` = `replace-with-your-client-id` and `WHOOP_CLIENT_SECRET` = `replace-with-your-client-secret` for now. The server treats those as unset; you replace them in [Create a Whoop Developer App](#2-create-a-whoop-developer-app).
 3. Add a volume mounted at `/data`. It holds the sign-ins and your encrypted Whoop tokens; without it, every redeploy signs your apps out and disconnects Whoop.
 4. Turn on updates: in the service's **Settings**, under **Source**, choose **Configure Auto Updates** and a maintenance window (for example **Night**). The `:1` tag moves with every 1.x release, and Railway then redeploys the service; on the Pro plan it backs up the volume first.
-5. Deploy, then open `https://your-app.up.railway.app/`: the set-up page shows what's left to do. If the deploy fails, open its logs: the server says what's missing.
+5. Deploy, then open `https://your-app.up.railway.app/`: the set-up page walks you through the rest and ticks steps off as you go. If the deploy fails, open its logs: the server says what's missing.
 
 **Already running a fork on Railway?** Switch it to the image: open the service's **Settings**, change **Service Source** to `ghcr.io/yuridivonis/whoop-mcp-server:1`, and turn on auto updates as in step 4. Keep the same variables and volume, so Whoop stays connected. If your fork is older than 1.3.0, read [Upgrading to 1.3.0](#upgrading-to-130) first: every app signs in once more. Your fork is then no longer used.
 

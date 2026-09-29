@@ -2,7 +2,7 @@ import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { Script } from 'node:vm';
-import { COPY_SCRIPT } from '../src/first-run-page.js';
+import { COPY_SCRIPT, REFRESH_SECONDS } from '../src/first-run-page.js';
 import { SERVER_VERSION } from '../src/tools.js';
 import { PASSWORD, mcpRequest, readRpc, signIn, startTestServer, type TestServer } from './helpers.js';
 
@@ -35,6 +35,11 @@ function boxes(body: string): string[] {
 	return [...body.matchAll(/<p class="box"><code>([^<]+)<\/code><button type="button" data-copy hidden aria-live="polite" aria-label="Copy the [^"]+">Copy<\/button><\/p>/g)].map(match => match[1]);
 }
 
+/** The state of each of the five steps, in page order. */
+function steps(body: string): string[] {
+	return [...body.matchAll(/<li class="(done|current|todo)">\n\s*<h2>[^<]+<\/h2>/g)].map(match => match[1]);
+}
+
 async function page(server: TestServer): Promise<{ res: Response; body: string }> {
 	const res = await fetch(`${server.baseUrl}/`);
 	return { res, body: await res.text() };
@@ -47,21 +52,26 @@ describe('the set-up page, once the WHOOP app is configured', () => {
 	});
 	after(() => server.close());
 
-	it('says where to connect an AI app, where the password is, and how updates work', async () => {
+	it('ticks steps 1 to 3, opens step 4 with the address, the password and the Claude and ChatGPT paths, and says how updates work', async () => {
 		const { res, body } = await page(server);
 		assert.equal(res.status, 200);
 		assert.match(res.headers.get('content-type') ?? '', /^text\/html/);
 		assert.ok(body.includes('<h1>Your server is ready</h1>'));
+		assert.deepEqual(steps(body), ['done', 'done', 'done', 'current', 'todo']);
 		assert.ok(body.includes(`<code>${server.baseUrl}/mcp</code>`));
 		assert.ok(body.includes('<code>MCP_AUTH_PASSWORD</code>'));
+		assert.ok(body.includes('<dt>Claude</dt>') && body.includes('Add custom connector'));
+		assert.ok(body.includes('<dt>ChatGPT</dt>') && body.includes('Create MCP App'));
+		assert.ok(body.includes('The first answer is a WHOOP link'));
 		assert.ok(body.includes('Configure Auto Updates'));
 		assert.ok(body.includes('With Docker, pull <code>:1</code> again and restart. With a fork, sync it and redeploy.'));
-		assert.ok(!body.includes('Step 1'));
+		assert.ok(!body.includes('http-equiv="refresh"'), 'nothing left to wait for');
+		assert.ok(body.includes('Both keys are in.'));
 	});
 
 	it('still shows the Redirect URL to check, and how to find the WHOOP app step', async () => {
 		const { body } = await page(server);
-		assert.deepEqual(boxes(body), [`${server.baseUrl}/mcp`, `${server.baseUrl}/callback`]);
+		assert.deepEqual(boxes(body), [`${server.baseUrl}/callback`, `${server.baseUrl}/mcp`]);
 		assert.ok(body.includes('Check it matches the Redirect URL in your WHOOP app.'));
 		assert.ok(body.includes('Not created it yet, or pasted the wrong values?'));
 		assert.ok(body.includes('If you add a custom domain later'));
@@ -142,30 +152,35 @@ describe("the set-up page, before the WHOOP app is configured", () => {
 	});
 	after(() => server.close());
 
-	it('shows the exact Redirect URL to register and the two steps, and nothing about connecting an AI yet', async () => {
+	it('ticks step 1, opens step 2 with the exact Redirect URL, shows the keys step and the connector step for later, and reloads itself', async () => {
 		const { res, body } = await page(server);
 		assert.equal(res.status, 200);
 		assert.ok(body.includes('<h1>Set up your server</h1>'));
+		assert.deepEqual(steps(body), ['done', 'current', 'todo', 'todo', 'todo']);
 		assert.ok(body.includes(`<code>${server.baseUrl}/callback</code>`));
-		assert.ok(body.includes('Step 1 of 2: create your WHOOP app'));
+		assert.ok(body.includes('<h2>Create your WHOOP app</h2>'));
 		assert.ok(body.includes('href="https://developer-dashboard.whoop.com"'));
+		assert.ok(body.includes(`<meta http-equiv="refresh" content="${REFRESH_SECONDS}">`));
+		assert.ok(body.includes(`it reloads every ${REFRESH_SECONDS} seconds`));
 		for (const scope of ['read:recovery', 'read:cycles', 'read:sleep', 'read:workout']) {
 			assert.ok(body.includes(`<code>${scope}</code>`), scope);
 		}
-		assert.ok(body.includes('Step 2 of 2'));
+		assert.ok(body.includes('<h2>Give this server the keys</h2>'));
 		assert.ok(body.includes('<code>WHOOP_CLIENT_ID</code>: select <code>replace-with-your-client-id</code> and paste the Client ID over it.'));
 		assert.ok(body.includes('<code>WHOOP_CLIENT_SECRET</code>: select <code>replace-with-your-client-secret</code> and paste the Client Secret over it.'));
 		assert.ok(body.includes('with nothing left of <code>replace-with-…</code>.'));
-		assert.ok(!body.includes('/mcp'));
-		assert.ok(!body.includes('Configure Auto Updates'));
+		assert.ok(body.includes(`<code>${server.baseUrl}/mcp</code>`), 'the address is on the page from the start');
+		assert.ok(body.includes('After step 3. The address won\'t change.'));
+		assert.ok(body.includes('<dt>Claude</dt>') && body.includes('<dt>ChatGPT</dt>'));
+		assert.ok(!body.includes('Configure Auto Updates'), 'the Later section waits');
 	});
 
 	it("walks through WHOOP's New App form in its order, with a Copy button on each value to paste", async () => {
 		const { body } = await page(server);
 		const labels = [...body.matchAll(/<dt>([^<]+)<\/dt>/g)].map(match => match[1]);
-		assert.deepEqual(labels, ['Name', 'Logo', 'Contacts', 'Privacy Policy', 'Redirect URLs', 'Scopes', 'Webhooks']);
-		assert.deepEqual(boxes(body), ['https://github.com/yuridivonis/whoop-mcp-server/blob/main/PRIVACY.md', `${server.baseUrl}/callback`]);
-		assert.ok(body.indexOf('Create App') < body.indexOf('Step 2 of 2'), 'the keys come after the app exists');
+		assert.deepEqual(labels, ['Name', 'Logo', 'Contacts', 'Privacy Policy', 'Redirect URLs', 'Scopes', 'Webhooks', 'Claude', 'ChatGPT', 'Other apps'], "WHOOP's form in its order, then the apps");
+		assert.deepEqual(boxes(body), ['https://github.com/yuridivonis/whoop-mcp-server/blob/main/PRIVACY.md', `${server.baseUrl}/callback`, `${server.baseUrl}/mcp`]);
+		assert.ok(body.indexOf('Create App') < body.indexOf('<h2>Give this server the keys</h2>'), 'the keys come after the app exists');
 		assert.ok(body.includes('Not <code>read:profile</code> or <code>read:body_measurement</code>.'), 'names the scopes to leave');
 	});
 

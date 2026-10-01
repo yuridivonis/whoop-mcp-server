@@ -37,7 +37,8 @@ function hiddenField(name: string, value: string | undefined): string {
 
 // Inline SVG, since the pages' Content-Security-Policy allows no images or fonts.
 const ICONS = {
-	mark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2.5-6 5 12 2.5-6h4"/></svg>',
+	// The project's icon (docs/icon.svg): a band arc with the pulse through it.
+	mark: '<svg viewBox="0 0 512 512" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M332 118a164 164 0 1 0 0 276" stroke="#ffffff" stroke-width="40"/><path d="M150 256h50l34-74 60 148 34-74h120" stroke="#8e8cff" stroke-width="40"/></svg>',
 	shield: '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6l8-3z"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>',
 	eye: '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
 };
@@ -79,8 +80,8 @@ export function page(title: string, body: string, script = ''): string {
   body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; -webkit-font-smoothing: antialiased; }
   main { width: 100%; max-width: 440px; background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 32px; box-shadow: var(--shadow); }
   .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; color: var(--muted); font-size: 0.9rem; font-weight: 600; }
-  .mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; background: var(--accent); color: var(--on-accent); }
-  .mark svg { width: 20px; height: 20px; }
+  .mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; background: #0a0c11; }
+  .mark svg { width: 26px; height: 26px; }
   h1 { font-size: 1.5rem; line-height: 1.25; letter-spacing: -0.02em; font-weight: 700; margin-bottom: 10px; overflow-wrap: anywhere; }
   .lede { color: var(--muted); font-size: 0.95rem; line-height: 1.5; margin-bottom: 20px; overflow-wrap: anywhere; }
   .lede strong { color: var(--text); font-weight: 600; }

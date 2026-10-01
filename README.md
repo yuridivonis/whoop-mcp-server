@@ -1,4 +1,4 @@
-<img src="docs/icon.png" alt="" width="96" height="96" align="left">
+<img src="docs/icon.svg" alt="" width="96" height="96" align="left">
 
 # Whoop MCP Server
 

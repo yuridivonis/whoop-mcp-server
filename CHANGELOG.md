@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.4.9] - 2026-10-01
+
+The icon on a transparent background, as Railway's marketplace guidelines ask. Nothing to do when upgrading.
+
+### Changed
+
+- **The icon is a transparent glyph** (`docs/icon.svg`, indigo arc and pulse), so it sits on Railway's own tile and on GitHub's white alike. The server's pages keep the same drawing on their small tile.
+
 ## [1.4.8] - 2026-10-01
 
 The project has an icon. Nothing to do when upgrading.
@@ -237,6 +245,7 @@ Upgrading takes a few minutes: see [Upgrading from 1.0.0](README.md#upgrading-fr
 
 Initial release: a remote MCP server with Whoop recovery, sleep, and strain tools, a local SQLite cache, and Railway deployment.
 
+[1.4.9]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.9
 [1.4.8]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.8
 [1.4.7]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.7
 [1.4.6]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.6

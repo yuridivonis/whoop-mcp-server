@@ -1,3 +1,5 @@
+<img src="docs/icon.png" alt="" width="96" height="96" align="left">
+
 # Whoop MCP Server
 
 [![CI](https://github.com/yuridivonis/whoop-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/yuridivonis/whoop-mcp-server/actions/workflows/ci.yml)

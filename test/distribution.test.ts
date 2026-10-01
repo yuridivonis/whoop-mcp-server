@@ -98,7 +98,7 @@ describe('documentation links', () => {
 		const repo = 'https://github.com/yuridivonis/whoop-mcp-server';
 		const links = [...read('src/first-run-page.ts').matchAll(/https:\/\/github\.com\/yuridivonis\/whoop-mcp-server[^'"`\s)]*/g)].map(match => match[0]);
 		const templated = [...read('src/first-run-page.ts').matchAll(/\$\{REPO\}(\/blob\/main\/[^'"`\s)]+|#[\w-]+)/g)].map(match => `${repo}${match[1]}`);
-		assert.ok(templated.length >= 4, 'the page links into the repository');
+		assert.ok(templated.length >= 3, 'the page links into the repository');
 		for (const link of [...links, ...templated]) {
 			const rest = link.slice(repo.length);
 			if (rest.startsWith('/blob/main/')) {

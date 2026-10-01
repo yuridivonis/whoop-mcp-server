@@ -125,6 +125,16 @@ export function page(title: string, body: string, script = ''): string {
   .setup .journey > li.todo h2 { color: var(--muted); }
   .setup .journey h2 { margin: 0 0 6px; line-height: 24px; }
   .setup .journey ol { margin-bottom: 8px; }
+  /* What happens in the AI app: a panel of its own, numbered on from the chain but never ticked, since this page can't see it. */
+  .setup .app { margin-top: 8px; padding: 18px 16px 8px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg); }
+  .setup .eyebrow { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent-strong); margin: 0 0 14px; }
+  .setup .app article + article { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border); }
+  .setup .app h3 { display: flex; align-items: center; gap: 10px; font-size: 1rem; font-weight: 700; margin: 0 0 8px; }
+  .setup .badge { flex: none; width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; font-size: 0.78rem; font-weight: 700; background: var(--card); border: 2px solid var(--accent); color: var(--accent-strong); }
+  .setup .app .box code { background: var(--card); }
+  .setup .app .fields dt { margin-top: 14px; }
+  .setup h2 + p, .setup .app + h2 { margin-top: 0; }
+  .setup .app + h2 { margin-top: 26px; }
   /* WHOOP's scopes as check boxes: the four to tick, the two to leave. */
   .setup .scopes { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 6px; }
   .setup .scopes li { display: flex; align-items: center; gap: 8px; margin: 0; }

@@ -48,7 +48,7 @@ Built on the [Whoop Developer API v2](https://developer.whoop.com/docs/introduct
 
 The template is published by this project's maintainer. Railway pays template creators a share of what deployments spend, and the link carries a referral code; neither costs you anything extra. Railway's Hobby plan is enough.
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/rt-2HZ?referralCode=U4Y3-R&utm_medium=integration&utm_source=button&utm_campaign=whoop-mcp-server)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/whoop-mcp-server?referralCode=U4Y3-R&utm_medium=integration&utm_source=button&utm_campaign=whoop-mcp-server)
 
 One click creates a Railway project running the `:1` image with a volume, auto updates and generated secrets; there's nothing to fill in. Tested live on 2026-09-29. Then:
 

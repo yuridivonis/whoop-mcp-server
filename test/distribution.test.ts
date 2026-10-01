@@ -94,7 +94,7 @@ describe('documentation links', () => {
 		}
 	});
 
-	it('from the set-up page point to files and README headings that exist', () => {
+	it('from the set-up page point to files that exist (and README headings, if any)', () => {
 		const repo = 'https://github.com/yuridivonis/whoop-mcp-server';
 		const links = [...read('src/first-run-page.ts').matchAll(/https:\/\/github\.com\/yuridivonis\/whoop-mcp-server[^'"`\s)]*/g)].map(match => match[0]);
 		const templated = [...read('src/first-run-page.ts').matchAll(/\$\{REPO\}(\/blob\/main\/[^'"`\s)]+|#[\w-]+)/g)].map(match => `${repo}${match[1]}`);

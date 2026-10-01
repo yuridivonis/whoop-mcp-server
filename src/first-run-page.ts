@@ -58,13 +58,14 @@ export function publicRedirectUri(redirectUri: string): URL {
 }
 
 /**
- * The page at /: the whole journey from a running server to the first answer, as five
- * steps on one page, with the done ones ticked and the current one marked. Before the WHOOP
- * app is configured it walks through WHOOP's New App form in the form's own order and, while
- * its tab is hidden, reloads until the keys are in; after, it shows how to connect an AI app
- * and what the first question does. Nothing is hidden until later: the connector address is
- * on the page from the start, marked for its step. Steps 4 and 5 happen in the AI app, so the
- * page never ticks them: it shows no connection state.
+ * The page at /: the whole journey from a running server to the first answer, on one page.
+ * A chain of the three steps this page can tick (server running, WHOOP app, keys), the done
+ * ones ticked and the current one marked, then a panel for what happens in the AI app
+ * (connect it, ask), numbered on but never ticked: the page shows no connection state.
+ * Before the WHOOP app is configured it walks through WHOOP's New App form in the form's
+ * own order and, while its tab is hidden, reloads until the keys are in. Nothing is hidden
+ * at any point: the instructions stay the same in both states, and the connector address is
+ * on the page from the start.
  *
  * SECURITY: it's public, and built from the config alone (nothing from the request). It
  * shows addresses, and whether the two WHOOP app variables are set: never a secret, the
@@ -88,7 +89,7 @@ ${body}
 
 	const httpsNote = redirectUrl.protocol === 'https:'
 		? ''
-		: `      <p class="note"><strong>Advanced tip:</strong> WHOOP only accepts https addresses. On your own computer, set <code>WHOOP_REDIRECT_URI</code> to your tunnel's <code>/callback</code>.</p>\n`;
+		: `      <p class="note"><strong>Running on your own computer?</strong> WHOOP only accepts https addresses, so set <code>WHOOP_REDIRECT_URI</code> to your tunnel's <code>/callback</code>.</p>\n`;
 	// The page shows the address without credentials or a query; WHOOP gets the configured value.
 	const redactedNote = redirectUrl.href === new URL(config.redirectUri).href
 		? ''
@@ -96,7 +97,7 @@ ${body}
 	const redirectBox = `${box(redirectUrl.href, 'Redirect URL')}\n${httpsNote}${redactedNote}`;
 
 	// The same instructions in both states: only the tick changes, so nothing goes missing.
-	const whoopApp = `${configured ? `      <p class="note">Done. Check the Redirect URL below matches the one in your WHOOP app. Not created it yet, or pasted the wrong values? Follow this step again.</p>
+	const whoopApp = `${configured ? `      <p class="note">Done. Check the Redirect URL below matches the one in your WHOOP app. To change a field, edit the app in the dashboard.</p>
 ` : ''}      <p>In the ${link(DASHBOARD, 'WHOOP Developer Dashboard')}, open <strong>New App</strong> and fill the form top to bottom:</p>
       <dl class="fields">
         <dt>Name</dt>
@@ -127,38 +128,47 @@ ${redirectBox}</dd>
       </dl>
       <p>Click <strong>Create App</strong>. WHOOP shows the app's <strong>Client ID</strong> and <strong>Client Secret</strong>: keep that tab open.</p>`;
 
-	const keys = `${configured ? '      <p class="note">Done: both keys are in. To change them later:</p>\n' : ''}      <ol${configured ? '' : ' data-wait'}>
+	const keys = configured
+		? `      <p class="note">Done: both keys are in. To change them later:</p>
+      <ol>
+        <li>On Railway, open the service's <strong>Variables</strong> tab.</li>
+        <li><code>WHOOP_CLIENT_ID</code>: paste the new Client ID over the current value.</li>
+        <li><code>WHOOP_CLIENT_SECRET</code>: the same, with the new Client Secret.</li>
+        <li>Click <strong>Deploy</strong> at the top. If the keys belong to a different WHOOP app, your next question brings a new authorization link.</li>
+      </ol>`
+		: `      <ol data-wait>
         <li>On Railway, open the service's <strong>Variables</strong> tab.</li>
         <li><code>WHOOP_CLIENT_ID</code>: select <code>${PLACEHOLDERS.clientId}</code> and paste the Client ID over it.</li>
         <li><code>WHOOP_CLIENT_SECRET</code>: select <code>${PLACEHOLDERS.clientSecret}</code> and paste the Client Secret over it.</li>
         <li>Click <strong>Deploy</strong> at the top. When it's done, reload this page: steps 2 and 3 tick. (If you left this tab meanwhile, it has reloaded by itself.) Seeing an error page? Check on Railway that the deploy has finished, then reload.</li>
       </ol>
-      <p class="note">The two variables aren't there? Add them with <strong>New Variable</strong>. Running it with Docker instead? Set the two variables there and restart. Steps 2 and 3 still unticked a minute after the deploy? Each variable must hold WHOOP's value alone, with nothing left of <code>replace-with-…</code>.</p>`;
+      <p class="note">The two variables aren't there? Add them with <strong>New Variable</strong>. Running it with Docker or elsewhere? Set the two variables where you set <code>MCP_AUTH_PASSWORD</code> and restart. Steps 2 and 3 still unticked a minute after the deploy? Each variable must hold WHOOP's value alone, with nothing left of <code>replace-with-…</code>.</p>`;
 
 	const connect = `${configured ? '' : `      <p class="note">Once step 3 is done. Step 3 doesn't change the address.</p>\n`}      <p>The address to add as a custom connector:</p>
 ${box(new URL('/mcp', config.publicUrl).href, 'server address')}
-      <p>It asks for the server password, which lets your AI app talk to this server: on Railway, that's the <code>MCP_AUTH_PASSWORD</code> variable in the service's <strong>Variables</strong> tab (click the eye to reveal it). Then you let this server read your WHOOP data, on WHOOP's own page: that's the link in step 5.</p>
-      <p><strong>Keep your WHOOP data out of model training.</strong> WHOOP's terms forbid using it to train AI, and your answers pass through your AI app. These two switches keep it out. In Claude, turn off <strong>Settings → Privacy → Help Improve our AI models</strong>. In ChatGPT, turn off <strong>Settings → Data controls → Improve the model for everyone</strong>.</p>
+      <p>It asks for the server password, which lets your AI app talk to this server: on Railway, that's the <code>MCP_AUTH_PASSWORD</code> variable in the service's <strong>Variables</strong> tab (click the eye to reveal it). Then you let this server read your WHOOP data, on WHOOP's own page: that's the link under <strong>Ask your first question</strong>.</p>
+      <p><strong>Keep your WHOOP data out of model training.</strong> WHOOP's terms forbid using it to train AI, and your answers pass through your AI app. One switch in your app keeps it out. In Claude, turn off <strong>Settings → Privacy → Help Improve our AI models</strong>. In ChatGPT, turn off <strong>Settings → Data controls → Improve the model for everyone</strong>.</p>
       <dl class="fields">
         <dt>Claude</dt>
         <dd>On claude.ai, go to <strong>Customize → Connectors</strong>, click <strong>+</strong>, then <strong>Add custom connector</strong>. Paste the address, name it, click <strong>Add</strong>, then <strong>Connect</strong>: enter the password, tick the box, sign in. In a chat, turn it on under <strong>+ → Connectors</strong>.</dd>
         <dt>ChatGPT</dt>
         <dd>On the web, go to <strong>Settings → Plugins → Add → Create MCP App</strong> (no such button? Turn on <strong>Developer mode</strong> under <strong>Settings → Security and login</strong>). Name it, set the MCP server URL to the address, choose <strong>OAuth</strong> (and <strong>Dynamic client registration</strong>, if asked), sign in with the password and tick the box, then create the app. In a new chat, mention it (<code>@Whoop</code>) and ask.</dd>
         <dt>Other apps</dt>
-        <dd>${link(ADD_TO_YOUR_AI, 'Add to your AI')} covers the other AI apps you may want to read your WHOOP data through this server.</dd>
+        <dd>${link(ADD_TO_YOUR_AI, 'Add to your AI')} covers the other AI apps you may want to read your WHOOP data through this server (Claude Code, Cursor, VS Code, Windsurf), and Team and Business workspaces.</dd>
       </dl>`;
 
-	const firstQuestion = `      <p>Ask your AI app anything about your WHOOP data, like how you slept. The first such question brings an authorization link instead of an answer: click it and log in with your own WHOOP account, the one whose data you want to read (the same login as the WHOOP app on your phone, not the developer dashboard), to let this server read your data. That's a one-time step: the server keeps its access renewed, so you normally won't be asked again. And it runs in the cloud, so from then on you can ask from any device or place, mobile included.</p>`;
+	const firstQuestion = `      <p>Ask your AI app anything about your WHOOP data, like how you slept. The first such question brings an authorization link instead of an answer: click it, log in with your WHOOP account (the one you use in the WHOOP app, whose data you want to read), approve the app, then ask again. The server renews its access each time you ask, so you normally won't be asked again. If you are, it's the same link.</p>
+      <p>From then on, ask wherever your AI app has this connector: Claude's desktop and mobile apps use the one you added, and ChatGPT's MCP apps are web-only.</p>`;
 
 	const later = `  <h2>Updates</h2>
   <p>Deployed from the Railway template? New versions install themselves: nothing to do. Set up by hand on Railway? Turn on <strong>Configure Auto Updates</strong> under <strong>Settings → Source</strong>, with the <code>:1</code> image tag. With Docker, pull <code>:1</code> again and restart.</p>
-  <p>If you add a custom domain later, open this page again: if the Redirect URL in step 2 changed, update it in your WHOOP app.</p>
+  <p>If you add a custom domain later, open this page again: if the Redirect URL under <strong>Create your WHOOP app</strong> changed, update it in your WHOOP app.</p>
 `;
 
 	const body = `  <h1>${configured ? 'Your MCP server is ready' : 'Configure your MCP server'}</h1>
   <p class="lede">${configured
 		? 'Everything on this page is done. The rest happens in your AI app: connect it, then ask it a question.'
-		: 'Your cloud server for the MCP is up. All that\'s left is to configure it, so the AI apps you use (Claude, ChatGPT and others) can talk to your WHOOP data. Three steps here, then two in your AI app. Keep this page open until the end.'}</p>
+		: 'Your MCP server is up. All that\'s left is to configure it, so the AI apps you use (Claude, ChatGPT and others) can talk to your WHOOP data. Three steps here, then two in your AI app. Keep this page open until the end.'}</p>
   <div class="setup">
   <ol class="journey" role="list">
 ${step(1, 'Server running', `      <p>It serves this page.</p>`)}
@@ -166,13 +176,13 @@ ${step(2, 'Create your WHOOP app', whoopApp)}
 ${step(3, 'Give this server the keys', keys)}
   </ol>
   <section class="app" aria-labelledby="then">
-    <p class="eyebrow" id="then">${configured ? 'Done here. The rest happens in your AI app' : 'Then, in your AI app'}</p>
+    <h2 class="eyebrow" id="then">${configured ? 'Done here. The rest happens in your AI app' : 'Then, in your AI app'}</h2>
     <article>
-      <h3><span class="badge" aria-hidden="true">4</span>Connect your AI app</h3>
+      <h3><span class="badge"><span class="sr">Step </span>4</span>Connect your AI app</h3>
 ${connect}
     </article>
     <article>
-      <h3><span class="badge" aria-hidden="true">5</span>Ask your first question</h3>
+      <h3><span class="badge"><span class="sr">Step </span>5</span>Ask your first question</h3>
 ${firstQuestion}
     </article>
   </section>

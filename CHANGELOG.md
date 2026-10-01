@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.4.7] - 2026-10-01
+
+The set-up page, reviewed step by step with its first users. Nothing to do when upgrading: redeploy, or let Railway's auto updates do it.
+
+### Changed
+
+- **The chain holds only what the page can tick.** Three steps on the page (server running, create your Whoop app, give the server the keys), all ticked once the keys are in. What happens in the AI app (connect it, ask the first question) is a panel of its own below, numbered 4 and 5 but never "unticked", because the page can't see it and must not show the connection state.
+- **Nothing disappears once a step is done:** steps 2 and 3 keep their full instructions, variable names included, and only gain a tick and a short "Done" note.
+- **Plainer words throughout:** "Configure your MCP server"; what the steps get you and to keep the page open; the first Whoop question brings an authorization link, where you log in with your Whoop account (the one you use in the Whoop app) and approve, then ask again; the server renews its access each time you ask, so you normally won't be asked again; where you can ask from then on (Claude's desktop and mobile apps, ChatGPT on the web); the https note is for people running the server on their own computer; the Updates section, now shown from the start, says the Railway template updates itself. The README link and the fork line are gone from the page.
+
 ## [1.4.6] - 2026-09-29
 
 Plainer words on the set-up page. Nothing to do when upgrading: redeploy, or let Railway's auto updates do it.
@@ -219,6 +229,7 @@ Upgrading takes a few minutes: see [Upgrading from 1.0.0](README.md#upgrading-fr
 
 Initial release: a remote MCP server with Whoop recovery, sleep, and strain tools, a local SQLite cache, and Railway deployment.
 
+[1.4.7]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.7
 [1.4.6]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.6
 [1.4.5]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.5
 [1.4.4]: https://github.com/yuridivonis/whoop-mcp-server/releases/tag/v1.4.4

@@ -113,18 +113,27 @@ export function page(title: string, body: string, script = ''): string {
   .setup ul { padding-left: 20px; }
   .setup li + li { margin-top: 4px; }
   .setup code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; background: var(--accent-soft); color: var(--accent-strong); border-radius: 6px; padding: 2px 6px; }
-  /* The five steps: done ones ticked, the current one marked, a line joining them. */
+  /* The chain of steps this page can tick: done ones ticked, the current one marked, a line joining them. */
   .setup .journey { list-style: none; padding: 0; margin: 4px 0 0; counter-reset: step; }
   .setup .journey > li { position: relative; margin: 0 0 0 11px; padding: 0 0 20px 26px; border-left: 2px solid var(--border); }
-  .setup .journey > li:last-child { border-left-color: transparent; padding-bottom: 4px; }
   .setup .journey > li::before { counter-increment: step; content: counter(step); position: absolute; left: -13px; top: -1px; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 0.78rem; font-weight: 700; background: var(--card); border: 2px solid var(--faint); color: var(--faint); }
   .setup .journey > li.done { border-left-color: var(--accent); }
+  .setup .journey > li:last-child { border-left-color: transparent; padding-bottom: 4px; }
   .setup .journey > li.done::before { content: "\\2713"; background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
   .setup .journey > li.current::before { border-color: var(--accent); color: var(--accent-strong); }
   .setup .journey > li.todo::before { border-style: dashed; }
   .setup .journey > li.todo h2 { color: var(--muted); }
   .setup .journey h2 { margin: 0 0 6px; line-height: 24px; }
   .setup .journey ol { margin-bottom: 8px; }
+  /* What happens in the AI app: a panel of its own, numbered on from the chain but never ticked, since this page can't see it. */
+  .setup .app { margin-top: 8px; padding: 18px 16px 8px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg); }
+  .setup h2.eyebrow { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent-strong); margin: 0 0 14px; }
+  .setup .app article + article { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border); }
+  .setup .app h3 { display: flex; align-items: center; gap: 10px; font-size: 1rem; font-weight: 700; margin: 0 0 8px; }
+  .setup .badge { flex: none; width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; font-size: 0.78rem; font-weight: 700; background: var(--card); border: 2px solid var(--accent); color: var(--accent-strong); }
+  .setup .app .box code { background: var(--card); }
+  .setup .app .fields dt { margin-top: 14px; }
+  .setup .app + h2 { margin-top: 26px; }
   /* WHOOP's scopes as check boxes: the four to tick, the two to leave. */
   .setup .scopes { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 6px; }
   .setup .scopes li { display: flex; align-items: center; gap: 8px; margin: 0; }

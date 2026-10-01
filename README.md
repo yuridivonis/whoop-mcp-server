@@ -84,7 +84,7 @@ Your server's set-up page, `https://your-app.up.railway.app/`, walks through Who
    - **Webhooks**: skip it.
 
    Click **Create App**: Whoop shows the app's **Client ID** and **Client Secret**.
-2. In the service's **Variables** tab, select `replace-with-your-client-id` in `WHOOP_CLIENT_ID` and paste the Client ID over it; the same for `replace-with-your-client-secret` in `WHOOP_CLIENT_SECRET`; then click **Deploy** at the top. The set-up page then shows the next step.
+2. In the service's **Variables** tab, select `replace-with-your-client-id` in `WHOOP_CLIENT_ID` and paste the Client ID over it; the same for `replace-with-your-client-secret` in `WHOOP_CLIENT_SECRET`; then click **Deploy** at the top. The set-up page then ticks steps 2 and 3.
 
 If you add a custom domain later, open the set-up page again: if the Redirect URL it shows changed, update it in your Whoop app, or set `WHOOP_REDIRECT_URI`.
 

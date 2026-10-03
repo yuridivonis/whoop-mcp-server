@@ -181,32 +181,32 @@ describe('data tools', () => {
 		const nightBefore = new RegExp(label(utcMidnight(-1)));
 
 		const strain = await callTool(server, accessToken, 'get_strain_history', { days: 14 });
-		assert.match(strain, new RegExp(`\\| ${today} \\| 9\\.5 \\|`));
+		assert.match(strain, new RegExp(`\\| ${today} \\(day in progress\\) \\| 9\\.5 \\|`));
 		assert.doesNotMatch(strain, nightBefore, 'must not use the UTC date the cycle started');
 
 		const sleep = await callTool(server, accessToken, 'get_sleep_analysis', { days: 14 });
-		assert.match(sleep, new RegExp(`\\| ${today} \\| 7\\.0h \\| 95% \\| 92% \\|`));
+		assert.match(sleep, new RegExp(`\\| ${today} \\| 23:30 \\| 07:00 \\| 7h 00m \\| `));
 
 		const recovery = await callTool(server, accessToken, 'get_recovery_trends', { days: 14 });
-		assert.match(recovery, new RegExp(`\\| ${today} \\| 85% \\| 69\\.3 ms \\| 50 bpm \\|`));
+		assert.match(recovery, new RegExp(`\\| ${today} \\| 85% \\| 69\\.3 \\| 50 \\|`));
 	});
 
 	it('counts time asleep, not the time the strap recorded no data', async () => {
 		const today = await callTool(server, accessToken, 'get_today');
-		assert.match(today, /\*\*Total Sleep\*\*: 7h 0m/);
+		assert.match(today, /\*\*Asleep\*\*: 7h 00m \(in bed/);
 
 		const sleep = await callTool(server, accessToken, 'get_sleep_analysis', { days: 14 });
-		assert.match(sleep, /\| 7\.0h \|/);
-		assert.match(sleep, /\*\*Duration\*\*: 7\.0 hours/);
+		assert.match(sleep, /\| 7h 00m \|/);
+		assert.match(sleep, /\*\*Asleep\*\*: 7h 00m/);
 	});
 
 	it('lists workouts with local date and time, activity, strain and time in zones 4–5', async () => {
 		const workouts = await callTool(server, accessToken, 'get_workouts', { days: 7 });
-		assert.match(workouts, new RegExp(`\\| ${label(utcMidnight(-1))} \\| 00:30 \\| Functional fitness \\| 0h 45m \\| 8\\.2 \\| 135 bpm \\| 171 bpm \\| 0h 15m \\| 500 kcal \\|`));
+		assert.match(workouts, new RegExp(`\\| ${label(utcMidnight(-1))} \\| 00:30 \\| Functional fitness \\| 0h 45m \\| 8\\.2 \\| 135 \\| 171 \\| 0h 15m \\| 500 \\|`));
 		assert.doesNotMatch(workouts, new RegExp(label(utcMidnight(-2))), 'must not use the UTC date');
 		assert.match(workouts, /\| Walking \| 0h 30m \| unscored \|/);
-		assert.match(workouts, /\*\*Workouts\*\*: 2/);
-		assert.match(workouts, /\*\*Average Strain\*\*: 8\.2/, 'unscored workouts are left out of the average');
+		assert.match(workouts, /## Totals \(2 workouts, 1 scored\)/);
+		assert.match(workouts, /\*\*Average strain\*\*: 8\.2/, 'unscored workouts are left out of the average');
 		assert.match(workouts, /zones 4–5\*\*: 0h 15m/);
 	});
 
@@ -298,8 +298,8 @@ describe('time asleep', () => {
 			},
 		} as unknown as WhoopSleep);
 
-		assert.match((await call('get_today')).text, /\*\*Total Sleep\*\*: N\/A/);
-		assert.match((await call('get_sleep_analysis', { days: 7 })).text, /\| N\/Ah \| 95% \|/);
+		assert.match((await call('get_today')).text, /\*\*Asleep\*\*: – \(in bed/);
+		assert.match((await call('get_sleep_analysis', { days: 7 })).text, /\| – \| 7h 30m \|.*\| 95% \|/);
 	});
 });
 
@@ -318,7 +318,7 @@ function night(daysAgo: number, recoveryScore: number): { cycle: WhoopCycle; sle
 	const end = new Date(utcMidnight(-daysAgo - 1) + 23 * HOUR).toISOString();
 	const id = 100 + daysAgo;
 	return {
-		cycle: { id, user_id: 1, created_at: start, updated_at: end, start, end: null, timezone_offset: '+08:00', score_state: 'SCORED',
+		cycle: { id, user_id: 1, created_at: start, updated_at: end, start, end: daysAgo === 0 ? null : new Date(utcMidnight(-daysAgo) + 15 * HOUR).toISOString(), timezone_offset: '+08:00', score_state: 'SCORED',
 			score: { strain: 10, kilojoule: 8000, average_heart_rate: 60, max_heart_rate: 150 } },
 		sleep: { id: `sleep-${id}`, cycle_id: id, user_id: 1, created_at: end, updated_at: end, start, end, timezone_offset: '+08:00', nap: false,
 			score_state: 'SCORED', score: {
@@ -346,11 +346,11 @@ describe('live data', () => {
 		const { whoop, call } = await connect(t);
 		const today = night(0, 85);
 		addNights(whoop, [today]);
-		assert.match((await call('get_today')).text, /## Recovery: 85%/);
+		assert.match((await call('get_today')).text, /\*\*Recovery\*\*: 85%/);
 
 		// WHOOP rescored the recovery. Nothing was kept from the last call, so it shows.
 		today.recovery.score!.recovery_score = 40;
-		assert.match((await call('get_today')).text, /## Recovery: 40%/);
+		assert.match((await call('get_today')).text, /\*\*Recovery\*\*: 40%/);
 		assert.equal(whoop.count('/v2/recovery'), 2);
 	});
 
@@ -358,9 +358,9 @@ describe('live data', () => {
 		const { whoop, call } = await connect(t);
 		addNights(whoop, [night(30, 55), night(31, 60)]);
 		const { text } = await call('get_today');
-		assert.match(text, /## Recovery: 55%/);
-		assert.match(text, /\*\*Total Sleep\*\*: 7h 30m/);
-		assert.match(text, /\*\*Day Strain\*\*: 10\.0/);
+		assert.match(text, /\*\*Recovery\*\*: 55%/);
+		assert.match(text, /\*\*Asleep\*\*: 7h 30m/);
+		assert.match(text, /\*\*Day strain\*\*: 10\.0/);
 	});
 
 	it("skips naps for last night's sleep", async t => {
@@ -371,7 +371,7 @@ describe('live data', () => {
 			score: { ...sleep.score!, stage_summary: { ...sleep.score!.stage_summary, total_light_sleep_time_milli: 1_800_000,
 				total_slow_wave_sleep_time_milli: 0, total_rem_sleep_time_milli: 0 } } };
 		whoop.records.sleeps.push(sleep, nap);
-		assert.match((await call('get_today')).text, /\*\*Total Sleep\*\*: 7h 30m/);
+		assert.match((await call('get_today')).text, /\*\*Asleep\*\*: 7h 30m/);
 	});
 
 	it('covers exactly the days asked for, reading every page WHOOP returns', async t => {
@@ -383,7 +383,7 @@ describe('live data', () => {
 		assert.ok(whoop.count('/v2/recovery') >= 2, 'more than one page of 25');
 
 		const week = (await call('get_sleep_analysis', { days: 7 })).text;
-		assert.equal(week.match(/^\| (?!Date|-)/gm)?.length, 7);
+		assert.equal(week.slice(0, week.indexOf('### Details')).match(/^\| (?!Date|-)/gm)?.length, 7);
 	});
 
 	it("dates a recovery by its cycle's day even when the cycle began the day before the period", async t => {
@@ -492,7 +492,7 @@ describe('the database', () => {
 			for (const name of ['get_today', 'get_recovery_trends', 'get_sleep_analysis', 'get_strain_history', 'get_workouts']) {
 				await callTool(server, tokens.access_token, name);
 			}
-			assert.match(await callTool(server, tokens.access_token, 'get_today'), /## Recovery: 77%/);
+			assert.match(await callTool(server, tokens.access_token, 'get_today'), /\*\*Recovery\*\*: 77%/);
 
 			for (const file of [dbPath, `${dbPath}-wal`]) {
 				if (existsSync(file)) {
@@ -503,5 +503,94 @@ describe('the database', () => {
 			await server.close();
 			rmSync(dir, { recursive: true, force: true });
 		}
+	});
+});
+
+describe('every WHOOP field, nothing hidden', () => {
+	it('shows zeros as zeros, a missing value as a dash, and an unscored day as pending', async t => {
+		const { whoop, call } = await connect(t);
+		const a = night(1, 70);
+		a.sleep.score!.stage_summary.disturbance_count = 0;
+		a.sleep.score!.stage_summary.total_no_data_time_milli = 0;
+		delete a.sleep.score!.respiratory_rate;
+		const b = night(2, 60);
+		b.recovery = { ...b.recovery, score_state: 'PENDING_SCORE', score: undefined };
+		b.cycle = { ...b.cycle, score_state: 'PENDING_SCORE', score: undefined, step_count: 8421 };
+		addNights(whoop, [a, b]);
+
+		const sleep = (await call('get_sleep_analysis', { days: 7 })).text;
+		assert.match(sleep, /\| 0h 00m \| 5 \| 0 \| 80% \| – \| 7h 30m \|/, 'no-data 0h 00m, 5 cycles, 0 disturbances, consistency, a dash for the missing respiratory rate, the need');
+		assert.match(sleep, /\*\*Respiratory rate\*\*: 14\.0 breaths\/min \(1 of 2 nights\)/);
+
+		const recovery = (await call('get_recovery_trends', { days: 7 })).text;
+		assert.match(recovery, /\| pending \| – \| – \|/);
+		assert.match(recovery, /## Averages \(1 of 2 days scored\)/);
+		assert.match(recovery, /\*\*Recovery\*\*: 70%\n/);
+
+		const strain = (await call('get_strain_history', { days: 7 })).text;
+		assert.match(strain, /\| Steps \|/);
+		assert.match(strain, /\| pending \| – \| – \| – \| 8421 \|/);
+	});
+
+	it("lists naps in their own table, in today's summary, and leaves the day in progress out of the strain averages", async t => {
+		const { whoop, call } = await connect(t);
+		const today = night(0, 70);
+		const nap: WhoopSleep = { ...today.sleep, id: 'nap', nap: true, start: new Date(Date.parse(today.sleep.end) + 6 * HOUR).toISOString(),
+			end: new Date(Date.parse(today.sleep.end) + 7 * HOUR).toISOString(),
+			score: { ...today.sleep.score!, stage_summary: { ...today.sleep.score!.stage_summary, total_in_bed_time_milli: 3_600_000, total_light_sleep_time_milli: 1_800_000,
+				total_slow_wave_sleep_time_milli: 0, total_rem_sleep_time_milli: 0 } } };
+		addNights(whoop, [today, night(1, 65), night(2, 75)]);
+		whoop.records.sleeps.push(nap);
+
+		const summary = (await call('get_today')).text;
+		assert.match(summary, /- \*\*Nap\*\* 13:00–14:00: 0h 30m asleep, 1h 00m in bed/);
+		assert.match(summary, /\*\*Sleep needed before this sleep\*\*: 7h 30m \(baseline 7h 30m \+ debt 0h 00m \+ strain 0h 00m \+ naps 0h 00m\)/);
+		assert.match(summary, /## Strain, .* \(day in progress\)/);
+
+		const sleep = (await call('get_sleep_analysis', { days: 7 })).text;
+		assert.match(sleep, /### Naps\n\| Date \| Start \| End \| Asleep \| In bed \|/);
+		assert.match(sleep, /\| 13:00 \| 14:00 \| 0h 30m \| 1h 00m \|/);
+		assert.match(sleep, /## Averages \(3 nights, 1 naps\)/);
+
+		const strain = (await call('get_strain_history', { days: 7 })).text;
+		assert.match(strain, /## Averages \(2 of 3 days: completed and scored\)/);
+	});
+
+	it('gives workouts a details table with distance, elevation, recorded share and every zone, and totals them', async t => {
+		const { whoop, call } = await connect(t);
+		const { sleep } = night(1, 70);
+		const base = { user_id: 1, created_at: sleep.end, updated_at: sleep.end, timezone_offset: '+08:00', score_state: 'SCORED' as const };
+		whoop.records.workouts.push({
+			...base, id: 'run', start: new Date(Date.parse(sleep.end) + HOUR).toISOString(), end: new Date(Date.parse(sleep.end) + 2 * HOUR).toISOString(), sport_name: 'running',
+			score: { strain: 12.1, average_heart_rate: 150, max_heart_rate: 180, kilojoule: 3000, percent_recorded: 98, distance_meter: 10_250, altitude_gain_meter: 120.4, altitude_change_meter: -5.2,
+				zone_durations: { zone_zero_milli: 0, zone_one_milli: 600_000, zone_two_milli: 1_200_000, zone_three_milli: 1_200_000, zone_four_milli: 300_000, zone_five_milli: 300_000 } },
+		}, {
+			...base, id: 'walk', start: new Date(Date.parse(sleep.end) + 4 * HOUR).toISOString(), end: new Date(Date.parse(sleep.end) + 4.5 * HOUR).toISOString(), sport_name: 'walking',
+			score: { strain: 3, average_heart_rate: 95, max_heart_rate: 110, kilojoule: 600, percent_recorded: 100, distance_meter: 800 },
+		});
+
+		const text = (await call('get_workouts', { days: 7 })).text;
+		assert.match(text, /### Details\n\| Date \| Start \| Distance \| Elevation gain \(m\) \| Altitude change \(m\) \| HR data recorded \| Zone 0 \| Zone 1 \| Zone 2 \| Zone 3 \| Zone 4 \| Zone 5 \|/);
+		assert.match(text, /\| 10\.3 km \| 120 \| -5 \| 98% \| 0h 00m \| 0h 10m \| 0h 20m \| 0h 20m \| 0h 05m \| 0h 05m \|/);
+		assert.match(text, /\| 800 m \| – \| – \| 100% \| – \| – \| – \| – \| – \| – \|/, 'a workout without zone data shows dashes, not zeros');
+		assert.match(text, /\*\*Distance\*\*: 11\.1 km/);
+		assert.match(text, /\*\*Elevation gain\*\*: 120 m/);
+		assert.match(text, /\*\*Calories\*\*: 860 kcal/);
+	});
+
+	it('shows SpO2, skin temperature and the calibrating flag when WHOOP sends them, and drops those columns when nobody has them', async t => {
+		const { whoop, call } = await connect(t);
+		const a = night(1, 70);
+		a.recovery.score = { ...a.recovery.score!, spo2_percentage: 97.2, skin_temp_celsius: 33.4, user_calibrating: true };
+		addNights(whoop, [a, night(2, 60)]);
+		const text = (await call('get_recovery_trends', { days: 7 })).text;
+		assert.match(text, /\| Date \| Recovery \| HRV \(ms\) \| RHR \(bpm\) \| SpO2 \(%\) \| Skin temp \(°C\) \| Calibrating \|/);
+		assert.match(text, /\| 70% \| 60\.0 \| 52 \| 97\.2 \| 33\.4 \| yes \|/);
+		assert.match(text, /\| 60% \| 60\.0 \| 52 \| – \| – \| no \|/);
+		assert.match(text, /\*\*SpO2\*\*: 97\.2% \(1 of 2 days\)/);
+
+		const { whoop: plain, call: callPlain } = await connect(t);
+		addNights(plain, [night(1, 70)]);
+		assert.match((await callPlain('get_recovery_trends', { days: 7 })).text, /\| Date \| Recovery \| HRV \(ms\) \| RHR \(bpm\) \| Calibrating \|/);
 	});
 });

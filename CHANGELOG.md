@@ -4,7 +4,13 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+Every value Whoop sends now reaches your AI, and the client rides out Whoop's hiccups. Nothing to do when upgrading: redeploy, or let Railway's auto updates do it.
+
 ### Changed
+
+- **Every Whoop field in every answer.** `get_today` dates each section and adds time in bed, awake and no-data time, sleep cycles, disturbances, consistency, the sleep needed before the night with its baseline, debt, strain and nap parts, today's naps, steps, and whether Whoop is still calibrating; `get_recovery_trends` adds SpO2, skin temperature and the calibrating flag; `get_sleep_analysis` adds bed and wake times, in bed, deep, REM, light and awake columns, a details table (no-data time, cycles, disturbances, consistency, respiratory rate, sleep need and its parts) and a naps table; `get_strain_history` adds heart rate and steps and marks the day in progress; `get_workouts` adds a details table with distance, elevation gain, altitude change, the share of heart-rate data recorded and time in every zone, and totals for calories, distance and elevation.
+- **Nothing hidden, nothing silently wrong:** zeros are shown as zeros, a missing value as "–", an unscored record as "pending" or "couldn't score" instead of being dropped; averages count only the days that have the value and say so ("12 of 14 days"); the day in progress is left out of strain averages; a date whose timezone offset Whoop didn't send is marked "(UTC)". Units moved into the column headers.
+- **Messages:** an unexpected answer from Whoop says what came back and where to look next.
 
 - **The WHOOP client's types cover every field of WHOOP's API v2 models** (steps, sleep need, disturbances, workout distance and elevation, the calibrating flag, …), each documented with its unit; `sport_name` is required and `sport_id` optional, as WHOOP has it since September 2025. New types `WhoopProfile` and `WhoopBodyMeasurement` (no method fetches them yet).
 - **One retry when WHOOP hiccups:** a page of a data read turned away with a 429 (naming a wait of up to 10 seconds, or none), or with a 500, 502, 503 or 504, is sent once more after the wait. Never the token endpoint. The rate-limit and outage messages now say how long to wait when WHOOP said.

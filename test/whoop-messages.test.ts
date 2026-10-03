@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { WhoopAuthError, WhoopRateLimitError, WhoopRequestError, WhoopUnavailableError } from '@yuridivonis/whoop-client';
+import { WhoopAuthError, WhoopProtocolError, WhoopRateLimitError, WhoopRequestError, WhoopUnavailableError } from '@yuridivonis/whoop-client';
 import { whoopMessage } from '../src/whoop-messages.js';
 
 describe('the server wording for WHOOP errors', () => {
@@ -28,5 +28,12 @@ describe('the server wording for WHOOP errors', () => {
 		}
 		// A reason from a newer version of the client.
 		assert.equal(whoopMessage(new WhoopAuthError('some_new_reason' as never, 'Authorize again.')), 'Authorize again.');
+	});
+});
+
+describe('whoopMessage for unexpected answers', () => {
+	it("wraps a protocol error with where to look next", () => {
+		const message = whoopMessage(new WhoopProtocolError("WHOOP's answer to GET /v2/cycle has no records array."));
+		assert.equal(message, "Unexpected answer from WHOOP: WHOOP's answer to GET /v2/cycle has no records array. If it keeps happening, check WHOOP's status page or open an issue.");
 	});
 });

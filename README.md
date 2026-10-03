@@ -23,10 +23,11 @@ Built on the [Whoop Developer API v2](https://developer.whoop.com/docs/introduct
 
 ## Features
 
-- **Recovery**: daily recovery score, HRV, resting heart rate, SpO2, skin temperature
-- **Sleep**: duration, stages, efficiency, performance, respiratory rate
-- **Strain**: daily strain score and calories burned
-- **Workouts**: activity, local start time, duration, strain, heart rate, calories, and time in heart-rate zones 4–5
+- **Everything Whoop sends, nothing hidden**: every physiological field of Whoop's API, with a date on every record, zeros shown as zeros and unscored days marked as such
+- **Recovery**: daily recovery score, HRV, resting heart rate, SpO2, skin temperature, and whether Whoop is still calibrating
+- **Sleep**: bed and wake times, time asleep and in bed, awake and no-data time, light/deep/REM stages, sleep cycles, disturbances, performance, efficiency, consistency, respiratory rate, the sleep needed before each night (baseline, debt, strain, nap credit), and naps
+- **Strain**: daily strain score, calories, average and max heart rate, and steps
+- **Workouts**: activity, local start time, duration, strain, heart rate, calories, time in every heart-rate zone, distance, elevation gain and altitude change, and the share of heart-rate data recorded
 - **Live data**: every answer is fetched from Whoop when you ask, so it's always current. The server stores only its sign-ins and your encrypted Whoop tokens, never your health data
 - **Private by default**: each app signs in with a password you choose (OAuth 2.1), and only after you tick a box allowing it, so nobody else can read your data
 - **Your choice of AI**: tested live with Claude and ChatGPT; other apps that sign in with OAuth should work the same way (see [compatibility](docs/add-to-your-ai.md#compatibility))
@@ -35,11 +36,11 @@ Built on the [Whoop Developer API v2](https://developer.whoop.com/docs/introduct
 
 | Tool | Description |
 |------|-------------|
-| `get_today` | Morning briefing with recovery, sleep, and strain |
-| `get_recovery_trends` | Recovery patterns over time with HRV/RHR |
-| `get_sleep_analysis` | Sleep trends: time asleep, performance, and efficiency |
-| `get_strain_history` | Daily strain and calorie trends |
-| `get_workouts` | Recent workouts with activity, duration, strain, heart rate, and calories |
+| `get_today` | Morning briefing: the latest recovery, last night's sleep with its need and naps, and today's strain, every field, each dated |
+| `get_recovery_trends` | Daily recovery, HRV, resting heart rate, SpO2, skin temperature and calibrating flag, with averages over the scored days |
+| `get_sleep_analysis` | Nightly sleep: times, stages, performance, efficiency, consistency, disturbances, respiratory rate and sleep need; naps; averages |
+| `get_strain_history` | Daily strain, calories, heart rate and steps, with averages over the completed days |
+| `get_workouts` | Workouts with activity, duration, strain, heart rate, calories, every heart-rate zone, distance and elevation; totals |
 | `get_auth_url` | Link to connect your Whoop account (works once, expires in 10 minutes) |
 
 ## Setup

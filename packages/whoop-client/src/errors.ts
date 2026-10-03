@@ -39,13 +39,21 @@ export class WhoopAuthError extends WhoopError {
 	}
 }
 
+/** "in 4 seconds", "in 3 minutes", "in a moment": how long until WHOOP's limit resets, for a message. */
+export function waitPhrase(seconds: number): string {
+	if (seconds < 2) return 'in a moment';
+	if (seconds <= 120) return `in ${Math.ceil(seconds)} seconds`;
+	if (seconds <= 7200) return `in ${Math.ceil(seconds / 60)} minutes`;
+	return `in ${Math.ceil(seconds / 3600)} hours`;
+}
+
 /** WHOOP's rate limit was reached. */
 export class WhoopRateLimitError extends WhoopError {
-	/** Seconds until the limit resets, from WHOOP's X-RateLimit-Reset header, when it sent one. */
+	/** Seconds until the limit resets, from WHOOP's X-RateLimit-Reset or Retry-After header, when it sent one. */
 	readonly resetSeconds?: number;
 
 	constructor({ resetSeconds, ...options }: { resetSeconds?: number } & ErrorOptions = {}) {
-		super("WHOOP's rate limit was reached. Try again in a minute.", options);
+		super(`WHOOP's rate limit was reached. Try again ${resetSeconds === undefined ? 'in a minute' : waitPhrase(resetSeconds)}.`, options);
 		this.name = 'WhoopRateLimitError';
 		this.resetSeconds = resetSeconds;
 	}
@@ -80,7 +88,7 @@ export class WhoopRequestError extends WhoopError {
 	}
 }
 
-/** WHOOP answered in a form the client can't use: a malformed token response, or paging that doesn't end. */
+/** WHOOP answered in a form the client can't use: a body that isn't JSON or has no records, a malformed token response, or paging that doesn't end. */
 export class WhoopProtocolError extends WhoopError {
 	constructor(message: string, options?: ErrorOptions) {
 		super(message, options);

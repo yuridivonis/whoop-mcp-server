@@ -46,6 +46,7 @@ describe('parseOffset', () => {
 		assert.equal(parseOffset('+0530'), 330);
 		assert.equal(parseOffset('-04:00'), -240);
 		assert.equal(parseOffset('+00:00'), 0);
+		assert.equal(parseOffset('Z'), 0, "WHOOP's spec allows Z for UTC");
 	});
 
 	it('gives 0 when there is no offset, and null when there is one it cannot read', () => {

@@ -45,7 +45,8 @@ try {
   - `clientId`, `clientSecret`, `store`;
   - `redirectUri`, which `authorizationUrl()` and `connect()` need;
   - `fetch`, for example a fake WHOOP in tests;
-  - `timeoutMs` per request (default 15 000).
+  - `timeoutMs` per request (default 15 000);
+  - `retry`: `false` turns the one retry off (below); `{ wait }` replaces its timer, for tests.
 - **`authorizationUrl({ scopes, state })`**: the WHOOP sign-in link. It throws `TypeError` without `redirectUri`, without the `offline` scope (WHOOP then issues no refresh token), or for a `state` under 8 characters.
 - **`connect(code)`**: exchanges the code from WHOOP's sign-in, saves the tokens and uses them from then on.
 - **`cycles(query)`, `recoveries(query)`, `sleeps(query)`, `workouts(query)`**:
@@ -59,20 +60,25 @@ try {
   - `parseOffset(offset)`: returns `null` for an offset that can't be read (the helpers then use UTC);
   - `timeAsleepMilli(sleep)`: time asleep, summed from the stages.
 - **Types:**
-  - the records: `WhoopCycle`, `WhoopRecovery`, `WhoopSleep`, `WhoopWorkout`;
+  - the records: `WhoopCycle`, `WhoopRecovery`, `WhoopSleep`, `WhoopWorkout`, with every field of WHOOP's API v2 models (steps, sleep need and disturbances, workout distance and elevation, the calibrating flag, …), each documented with its unit;
+  - `WhoopProfile` and `WhoopBodyMeasurement`, WHOOP's profile and body models (no method fetches them yet: they need scopes the server doesn't ask for);
   - `WhoopQuery`, `WhoopScope`, `ScoreState`, `WhoopTokens`, `StoredWhoopTokens`, `TokenStore`, `WhoopClientOptions`, `WhoopAuthReason`.
+
+## Retries
+
+Each page of a data read (`cycles()` and the other three) is sent once more, and only once, when WHOOP answers 429 naming a wait of at most 10 seconds (the client waits that long plus a second), or 429 without a wait (it waits a second), or 500, 502, 503 or 504 (it waits what `Retry-After` names up to 10 seconds, else a second). So a many-page read can wait once per page, up to 11 seconds each. A 429 or a 5xx naming a longer wait isn't waited out: the error's message says how long, and `WhoopRateLimitError.resetSeconds` carries the number. A page resent after a 401 refresh is final: a 429 or 5xx on that resend is reported, not retried. The token endpoint and `revokeAccess()` are never retried, so the refresh rules below are untouched. Timeouts and network errors aren't retried either. `retry: false` turns it off.
 
 ## Errors
 
-Every error from WHOOP is a `WhoopError`, with one exception for now: a data endpoint answering 200 with something that isn't JSON still surfaces as the parser's own `SyntaxError` (wrapped in the next release). Each class has a stable `name`, for code that can't rely on `instanceof`.
+Every error from WHOOP is a `WhoopError`. Each class has a stable `name`, for code that can't rely on `instanceof`.
 
 | Class | Meaning |
 |---|---|
 | `WhoopAuthError` | The user must sign in again. `reason` says why: `not_connected`, `refresh_interrupted` or `authorization_ended`. `oauthError` is `invalid_grant` when WHOOP refused the token explicitly. New reasons may come in a minor release, so a `switch` on it needs a default branch |
-| `WhoopRateLimitError` | WHOOP's rate limit. `resetSeconds` comes from WHOOP's `X-RateLimit-Reset`, when sent |
-| `WhoopUnavailableError` | WHOOP failed (5xx), timed out, or couldn't be reached. Also carries `status` and `reachedWhoop` |
+| `WhoopRateLimitError` | WHOOP's rate limit, after the retry if there was one. `resetSeconds` comes from WHOOP's `X-RateLimit-Reset` or `Retry-After`, when sent, and the message says "try again in N seconds" |
+| `WhoopUnavailableError` | WHOOP failed (5xx), timed out, couldn't be reached, or its answer was cut off mid-body (then `status` is 200). Also carries `status` and `reachedWhoop` |
 | `WhoopRequestError` | WHOOP turned the request away (another 4xx). Carries `status`, and `oauthError` when the app's own credentials were refused |
-| `WhoopProtocolError` | WHOOP answered in a form the client can't use: a malformed token response, or paging that doesn't end |
+| `WhoopProtocolError` | WHOOP answered in a form the client can't use: a 200 whose body isn't JSON or whose `records` isn't an array (a page without `records` counts as empty), a malformed token response, or paging that doesn't end. The message names the endpoint and never quotes the body |
 
 ## Token store
 

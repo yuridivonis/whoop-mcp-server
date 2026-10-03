@@ -26,6 +26,8 @@ export type {
 	WhoopSleep,
 	WhoopTokens,
 	WhoopWorkout,
+	WhoopProfile,
+	WhoopBodyMeasurement,
 } from './types.js';
 export { localDate, localTime, parseOffset, wakeDay } from './days.js';
 export { timeAsleepMilli } from './sleep.js';

@@ -17,7 +17,7 @@ const TOKEN_URL = 'https://api.prod.whoop.com/oauth/oauth2/token';
 /** What WHOOP's token endpoint does with one refresh request. */
 type TokenOutcome = 'ok' | 'refused' | 'rate-limited' | 'never-sent' | 'failed-before-rotating' | 'failed-after-rotating';
 /** What WHOOP's API does with one data request (on top of rejecting stale access tokens). */
-type ApiOutcome = 'ok' | 'rejected' | 'unavailable';
+type ApiOutcome = 'ok' | 'rejected' | 'unavailable' | 'rate-limited';
 
 /** Refresh tokens are `refresh-<grant>-<n>`: a reconnect starts a newer grant. */
 function order(refreshToken: string): [number, number] {
@@ -136,6 +136,7 @@ class ScheduledWhoop {
 		if (outcome === 'rejected' && newest) this.dead.add(grantOf(bearer));
 		if (outcome === 'rejected' || !newest) return Response.json({}, { status: 401 });
 		if (outcome === 'unavailable') return Response.json({}, { status: 503 });
+		if (outcome === 'rate-limited') return Response.json({}, { status: 429, headers: { 'X-RateLimit-Reset': '2' } });
 		if (init?.method === 'DELETE') {
 			if (this.revokeModel === 'user') {
 				for (let grant = 0; grant <= this.grants; grant++) this.revoked.add(grant);
@@ -201,7 +202,7 @@ class Row {
 }
 
 const tokenOutcome = fc.constantFrom<TokenOutcome>('ok', 'ok', 'refused', 'rate-limited', 'never-sent', 'failed-before-rotating', 'failed-after-rotating');
-const apiOutcome = fc.constantFrom<ApiOutcome>('ok', 'ok', 'rejected', 'unavailable');
+const apiOutcome = fc.constantFrom<ApiOutcome>('ok', 'ok', 'rejected', 'unavailable', 'rate-limited');
 
 describe('the refresh rules, under random races and failures', () => {
 	it('never present a refresh token WHOOP may have spent, never go back to older tokens, never forget a live authorization, and always settle', async () => {
@@ -220,7 +221,8 @@ describe('the refresh rules, under random races and failures', () => {
 					const whoop = new ScheduledWhoop(s, first, tokenOutcomes, apiOutcomes, revokeModel);
 					const row = new Row(s, first, saveFailures, whoop.authorizations, token => whoop.live(token));
 					const client = (store: TokenStore) =>
-						new WhoopClient({ clientId: 'id', clientSecret: 'secret', redirectUri: 'http://localhost:3000/callback', store, fetch: whoop.fetch });
+						// The retry's wait goes through the scheduler too, so a refresh or a revoke can land during it.
+						new WhoopClient({ clientId: 'id', clientSecret: 'secret', redirectUri: 'http://localhost:3000/callback', store, fetch: whoop.fetch, retry: { wait: s.scheduleFunction(async () => {}) as (ms: number) => Promise<void> } });
 					// A and B share one store object (one process); C has its own, as another process would.
 					const shared = row.store();
 					const clients = { A: client(shared), B: client(shared), C: client(row.store()) };
@@ -253,7 +255,7 @@ describe('the refresh rules, under random races and failures', () => {
 
 function cycles(count: number): WhoopCycle[] {
 	return Array.from({ length: count }, (_, i) => ({
-		id: i + 1, user_id: 1, start: new Date(Date.UTC(2026, 0, 1) + i * HOUR).toISOString(), end: null,
+		id: i + 1, user_id: 1, created_at: new Date(Date.UTC(2026, 0, 1) + i * HOUR).toISOString(), updated_at: new Date(Date.UTC(2026, 0, 1) + i * HOUR).toISOString(), start: new Date(Date.UTC(2026, 0, 1) + i * HOUR).toISOString(), end: null,
 		timezone_offset: '+00:00', score_state: 'SCORED' as const, score: { strain: 5, kilojoule: 1000, average_heart_rate: 60, max_heart_rate: 120 },
 	}));
 }
@@ -261,7 +263,7 @@ function cycles(count: number): WhoopCycle[] {
 function clientFor(whoop: FakeWhoop): WhoopClient {
 	let tokens: StoredWhoopTokens | null = { access_token: 'a', refresh_token: 'r', expires_at: Date.now() + HOUR };
 	return new WhoopClient({
-		clientId: 'id', clientSecret: 'secret', redirectUri: 'http://localhost:3000/callback', fetch: whoop.fetch,
+		clientId: 'id', clientSecret: 'secret', redirectUri: 'http://localhost:3000/callback', fetch: whoop.fetch, retry: { wait: async () => {} },
 		store: { load: async () => tokens, save: async saved => { tokens = saved; } },
 	});
 }

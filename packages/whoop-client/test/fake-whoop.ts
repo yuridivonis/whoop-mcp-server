@@ -38,6 +38,7 @@ export class FakeWhoop {
 	readonly exchangedCodes: string[] = [];
 	/** When set, every API request fails with this HTTP status. */
 	failWith?: number;
+
 	/** When set, the token endpoint refuses the app's credentials with this HTTP status. */
 	refuseClientWith?: number;
 	/** How long each API request takes, so that requests made together overlap. */
@@ -57,6 +58,7 @@ export class FakeWhoop {
 		this.requests.push(url);
 		if (this.delayMs) await new Promise(resolve => setTimeout(resolve, this.delayMs));
 		if (this.failWith) return json({ error: 'failed' }, this.failWith);
+
 		if (init?.method === 'DELETE' && url.pathname === `${API_PATH}/v2/user/access`) return new Response(null, { status: 204 });
 
 		const endpoint = ENDPOINTS[url.pathname.replace(API_PATH, '')];

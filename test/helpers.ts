@@ -59,6 +59,8 @@ export async function startTestServer({ dbPath = ':memory:', password = PASSWORD
 		redirectUri: config.redirectUri,
 		store: db.whoopTokens,
 		fetch: whoop.fetch,
+		// A retried request waits nothing in tests.
+		retry: { wait: async () => {} },
 	});
 
 	httpServer.on('request', createApp({ config, db, client, authStates, log }));

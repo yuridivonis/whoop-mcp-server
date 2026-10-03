@@ -198,7 +198,7 @@ export interface WhoopWorkout {
 		max_heart_rate: number;
 		/** Energy expended, in kilojoules. */
 		kilojoule: number;
-		/** Share (0–100) of the workout for which WHOOP received heart-rate data. */
+		/** Share of the workout for which WHOOP received heart-rate data. The spec says 0–100, but the API sends a 0–1 fraction (1 = all of it). */
 		percent_recorded: number;
 		/** Metres, only when the workout sent distance data to WHOOP. */
 		distance_meter?: number;

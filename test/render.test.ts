@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { MISSING, distance, formatDuration, num, recoveryZone, strainZone, table } from '../src/render.js';
+import { MISSING, distance, formatDuration, num, recordedPercent, recoveryZone, scoreStateLabel, strainZone, table } from '../src/render.js';
 
 describe('render', () => {
 	it('labels zones by the number as printed, so the label never contradicts it', () => {
@@ -29,6 +29,17 @@ describe('render', () => {
 		assert.equal(distance(999.6), '1000 m');
 		assert.equal(distance(1000), '1.0 km');
 		assert.equal(distance(null), MISSING);
+	});
+
+	it("reads WHOOP's recorded share as a fraction when it is one, and names an unknown score state in WHOOP's words", () => {
+		assert.equal(recordedPercent(1), 100, 'what WHOOP sends live for a full recording');
+		assert.equal(recordedPercent(0.9), 90);
+		assert.equal(recordedPercent(98), 98, 'a value over 1 is already a percent, as the spec says');
+		assert.equal(recordedPercent(null), null);
+		assert.equal(scoreStateLabel('PENDING_SCORE'), 'pending');
+		assert.equal(scoreStateLabel('UNSCORABLE'), "couldn't score");
+		assert.equal(scoreStateLabel('SCORED'), MISSING);
+		assert.equal(scoreStateLabel('NEW_STATE_FROM_WHOOP'), 'new state from whoop');
 	});
 
 	it('drops an optional column nobody fills, and keeps every other column even when empty', () => {

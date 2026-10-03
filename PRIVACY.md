@@ -15,7 +15,7 @@ When a tool needs it, the server reads only this from the Whoop API:
 
 Every one of these values can appear in an answer to your AI app: the server passes on what Whoop sends, converted into readable units, with nothing held back.
 
-Each record also carries its start and end times, the timezone offset where it was recorded, and your Whoop user ID. The server doesn't request your Whoop profile or body measurements.
+Each record also carries its start and end times, the timezone offset where it was recorded, and your Whoop user ID. The user ID, the records' identifiers and the timestamps of when Whoop recorded them aren't passed on to your AI app. The server doesn't request your Whoop profile or body measurements.
 
 ## Where it's stored
 

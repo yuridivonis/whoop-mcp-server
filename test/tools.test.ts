@@ -204,8 +204,8 @@ describe('data tools', () => {
 		const workouts = await callTool(server, accessToken, 'get_workouts', { days: 7 });
 		assert.match(workouts, new RegExp(`\\| ${label(utcMidnight(-1))} \\| 00:30 \\| Functional fitness \\| 0h 45m \\| 8\\.2 \\| 135 \\| 171 \\| 0h 15m \\| 500 \\|`));
 		assert.doesNotMatch(workouts, new RegExp(label(utcMidnight(-2))), 'must not use the UTC date');
-		assert.match(workouts, /\| Walking \| 0h 30m \| unscored \|/);
-		assert.match(workouts, /## Totals \(2 workouts, 1 scored\)/);
+		assert.match(workouts, /\| Walking \| 0h 30m \| pending \|/);
+		assert.match(workouts, /## Totals \(2 workouts, 1 scored: the others count as zero below\)/);
 		assert.match(workouts, /\*\*Average strain\*\*: 8\.2/, 'unscored workouts are left out of the average');
 		assert.match(workouts, /zones 4–5\*\*: 0h 15m/);
 	});
@@ -281,7 +281,7 @@ describe('tool definitions', () => {
 });
 
 describe('time asleep', () => {
-	it('shows N/A rather than a partial total when a sleep stage is missing', async t => {
+	it('shows a dash rather than a partial total when a sleep stage is missing', async t => {
 		const { whoop, call } = await connect(t, { mode: 'stdio' });
 		const fellAsleep = new Date(utcMidnight(-1) + 15.5 * HOUR).toISOString();
 		const wokeUp = new Date(utcMidnight(-1) + 23 * HOUR).toISOString();
@@ -543,14 +543,14 @@ describe('every WHOOP field, nothing hidden', () => {
 		whoop.records.sleeps.push(nap);
 
 		const summary = (await call('get_today')).text;
-		assert.match(summary, /- \*\*Nap\*\* 13:00–14:00: 0h 30m asleep, 1h 00m in bed/);
-		assert.match(summary, /\*\*Sleep needed before this sleep\*\*: 7h 30m \(baseline 7h 30m \+ debt 0h 00m \+ strain 0h 00m \+ naps 0h 00m\)/);
+		assert.match(summary, /- \*\*Nap\*\* .* 13:00–14:00: 0h 30m asleep, 1h 00m in bed/);
+		assert.match(summary, /\*\*Sleep needed before this sleep\*\*: 7h 30m \(baseline 7h 30m \+ debt 0h 00m \+ strain 0h 00m − naps 0h 00m\)/);
 		assert.match(summary, /## Strain, .* \(day in progress\)/);
 
 		const sleep = (await call('get_sleep_analysis', { days: 7 })).text;
 		assert.match(sleep, /### Naps\n\| Date \| Start \| End \| Asleep \| In bed \|/);
 		assert.match(sleep, /\| 13:00 \| 14:00 \| 0h 30m \| 1h 00m \|/);
-		assert.match(sleep, /## Averages \(3 nights, 1 naps\)/);
+		assert.match(sleep, /## Averages over the 3 nights \(naps not averaged: 1\)/);
 
 		const strain = (await call('get_strain_history', { days: 7 })).text;
 		assert.match(strain, /## Averages \(2 of 3 days: completed and scored\)/);
@@ -592,5 +592,61 @@ describe('every WHOOP field, nothing hidden', () => {
 		const { whoop: plain, call: callPlain } = await connect(t);
 		addNights(plain, [night(1, 70)]);
 		assert.match((await callPlain('get_recovery_trends', { days: 7 })).text, /\| Date \| Recovery \| HRV \(ms\) \| RHR \(bpm\) \| Calibrating \|/);
+	});
+});
+
+describe('the sleep need, unscorable records, dating fallbacks and unreadable dates', () => {
+	it('adds up the sleep need with a nap credit subtracted, in both tools', async t => {
+		const { whoop, call } = await connect(t);
+		const a = night(0, 70);
+		a.sleep.score!.sleep_needed = { baseline_milli: 27_000_000, need_from_sleep_debt_milli: 1_200_000, need_from_recent_strain_milli: 600_000, need_from_recent_nap_milli: -300_000 };
+		addNights(whoop, [a]);
+		assert.match((await call('get_today')).text, /\*\*Sleep needed before this sleep\*\*: 7h 55m \(baseline 7h 30m \+ debt 0h 20m \+ strain 0h 10m − naps 0h 05m\)/);
+		const sleep = (await call('get_sleep_analysis', { days: 7 })).text;
+		assert.match(sleep, /\| 7h 55m \| 7h 30m \| 0h 20m \| 0h 10m \| 0h 05m \|\n\nAsleep = light/, 'the need columns, then a blank line before the legend so it is not a table row');
+		assert.match(sleep, /\*\*Sleep needed\*\*: 7h 55m/);
+	});
+
+	it('says "couldn\'t score" for unscorable records, and shows steps and the calibrating line in the summary', async t => {
+		const { whoop, call } = await connect(t);
+		const a = night(0, 70);
+		a.recovery = { ...a.recovery, score: { ...a.recovery.score!, user_calibrating: true } };
+		a.cycle = { ...a.cycle, step_count: null };
+		const b = night(1, 60);
+		b.recovery = { ...b.recovery, score_state: 'UNSCORABLE', score: undefined };
+		b.sleep = { ...b.sleep, score_state: 'UNSCORABLE', score: undefined };
+		addNights(whoop, [a, b]);
+		const summary = (await call('get_today')).text;
+		assert.match(summary, /\*\*Calibrating\*\*: WHOOP is still learning your baseline/);
+		assert.match(summary, /\*\*Steps\*\*: –/);
+		assert.match((await call('get_recovery_trends', { days: 7 })).text, /\| couldn't score \| – \| – \|/);
+		assert.match((await call('get_sleep_analysis', { days: 7 })).text, /\| 23:00 \| 07:00 \| couldn't score \| – \|/);
+	});
+
+	it('marks a date "(UTC)" when the offset cannot be read, and dates a lone recovery by when WHOOP scored it', async t => {
+		const { whoop, call } = await connect(t);
+		const a = night(1, 70);
+		a.cycle = { ...a.cycle, timezone_offset: 'Mars/Olympus' };
+		addNights(whoop, [a]);
+		assert.match((await call('get_strain_history', { days: 7 })).text, /\| \w{3}, \w{3} \d+ \(UTC\) \| 10\.0 \|/);
+
+		const { whoop: lone, call: callLone } = await connect(t);
+		const b = night(0, 80);
+		lone.records.recoveries.push(b.recovery); // no cycle, no sleep fetched
+		assert.match((await callLone('get_today')).text, /## Recovery, \w{3}, \w{3} \d+ \(dated by when WHOOP scored it\)/);
+	});
+
+	it('leaves out a record whose dates cannot be read, says so, and answers with the rest', async t => {
+		const { whoop, call } = await connect(t);
+		const a = night(0, 70);
+		addNights(whoop, [a]);
+		whoop.records.workouts.push({ id: 'broken', user_id: 1, created_at: a.sleep.end, updated_at: a.sleep.end, start: 'not a date', end: 'nor this', timezone_offset: '+08:00', sport_name: 'running', score_state: 'SCORED',
+			score: { strain: 5, average_heart_rate: 100, max_heart_rate: 120, kilojoule: 500, percent_recorded: 100 } });
+		whoop.records.workouts.push({ id: 'fine', user_id: 1, created_at: a.sleep.end, updated_at: a.sleep.end, start: new Date(Date.parse(a.sleep.end) + HOUR).toISOString(), end: new Date(Date.parse(a.sleep.end) + 2 * HOUR).toISOString(), timezone_offset: '+08:00', sport_name: 'running', score_state: 'SCORED',
+			score: { strain: 5, average_heart_rate: 100, max_heart_rate: 120, kilojoule: 500, percent_recorded: 100 } });
+		const { text, isError } = await call('get_workouts', { days: 7 });
+		assert.equal(isError, false);
+		assert.match(text, /^# Workouts \(Last 7 Days\)\n\n1 record skipped \(unreadable dates\)\.\n\n\| Date/);
+		assert.match(text, /## Totals \(1 workouts\)/);
 	});
 });

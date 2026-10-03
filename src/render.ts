@@ -27,7 +27,9 @@ export function formatDate(day: string): string {
 /** A number with `digits` decimals and an optional unit; "–" when missing. */
 export function num(value: number | null | undefined, digits = 0, unit = ''): string {
 	if (value == null || !Number.isFinite(value)) return MISSING;
-	return `${value.toFixed(digits)}${unit}`;
+	const rounded = Number(value.toFixed(digits));
+	// Never "-0": a small negative altitude change rounds to zero, not minus zero.
+	return `${(Object.is(rounded, -0) ? 0 : rounded).toFixed(digits)}${unit}`;
 }
 
 /** Kilojoules as whole kilocalories. */
@@ -48,17 +50,26 @@ export function sportName(name: string | undefined): string {
 	return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+/** WHOOP's recovery band for the score as it's printed (a whole percent), so the label never contradicts the number. */
 export function recoveryZone(score: number): string {
-	if (score >= 67) return 'Green (Well Recovered)';
-	if (score >= 34) return 'Yellow (Moderate)';
+	const shown = Math.round(score);
+	if (shown >= 67) return 'Green (Well Recovered)';
+	if (shown >= 34) return 'Yellow (Moderate)';
 	return 'Red (Needs Rest)';
 }
 
+/** WHOOP's strain band for the strain as it's printed (one decimal). */
 export function strainZone(strain: number): string {
-	if (strain >= 18) return 'All Out (18-21)';
-	if (strain >= 14) return 'High (14-17)';
-	if (strain >= 10) return 'Moderate (10-13)';
+	const shown = Number(strain.toFixed(1));
+	if (shown >= 18) return 'All Out (18-21)';
+	if (shown >= 14) return 'High (14-17)';
+	if (shown >= 10) return 'Moderate (10-13)';
 	return 'Light (0-9)';
+}
+
+/** Whether WHOOP's timestamps on a record can be read; one that can't is left out and counted. */
+export function readable(...timestamps: (string | null | undefined)[]): boolean {
+	return timestamps.every(value => value == null || Number.isFinite(Date.parse(value)));
 }
 
 /** What a record without a score is doing: still being scored, or beyond scoring. */

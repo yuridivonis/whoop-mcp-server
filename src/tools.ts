@@ -15,8 +15,13 @@ import type { UpdateChecker } from './updates.js';
 import { localTime, wakeDay } from './days.js';
 import {
 	MISSING, averageLine, cycleView, dayOf, distance, formatDate, formatDuration, mean, num, recoveryView, recoveryZone,
-	scoreStateLabel, sleepView, span, sportName, strainZone, table, workoutView,
+	readable, scoreStateLabel, sleepView, span, sportName, strainZone, table, workoutView,
 } from './render.js';
+
+/** A line for records WHOOP sent with timestamps that can't be read; they're left out rather than failing the answer. */
+function skippedLine(count: number): string {
+	return count > 0 ? `${count} record${count === 1 ? '' : 's'} skipped (unreadable dates).\n\n` : '';
+}
 import { whoopMessage } from './whoop-messages.js';
 
 export const SERVER_VERSION = '1.4.9';
@@ -228,7 +233,7 @@ export function createMcpServer({ client, authStates, redirectUri, whoopConfigur
 						// Dated by its cycle when that's the one fetched, else by the sleep it followed, else in UTC.
 						const day = cycle && cycle.id === recovery.cycle_id ? dayOf(cycle.start, cycle.timezone_offset)
 							: sleep && sleep.id === recovery.sleep_id ? dayOf(sleep.start, sleep.timezone_offset)
-							: `${formatDate(recovery.created_at.slice(0, 10))} (UTC)`;
+							: `${dayOf(recovery.created_at, cycle?.timezone_offset ?? sleep?.timezone_offset ?? 'Z', false)} (dated by when WHOOP scored it)`;
 						response += `## Recovery, ${day}\n`;
 						if (r.score == null) {
 							response += `- **Recovery**: ${scoreStateLabel(recovery.score_state)}\n`;
@@ -252,12 +257,13 @@ export function createMcpServer({ client, authStates, redirectUri, whoopConfigur
 						response += `- **Sleep cycles**: ${num(v.cycles)}, **disturbances**: ${num(v.disturbances)}\n`;
 						response += `- **Performance**: ${num(v.performance, 0, '%')}, **efficiency**: ${num(v.efficiency, 0, '%')}, **consistency**: ${num(v.consistency, 0, '%')}\n`;
 						response += `- **Respiratory rate**: ${num(v.respiratory, 1, ' breaths/min')}\n`;
-						response += `- **Sleep needed before this sleep**: ${formatDuration(v.need)} (baseline ${formatDuration(v.baseline)} + debt ${formatDuration(v.debt)} + strain ${formatDuration(v.strainNeed)} ${v.napCredit != null && v.napCredit < 0 ? '− naps ' + formatDuration(-v.napCredit) : '+ naps ' + formatDuration(v.napCredit)})\n`;
+						response += `- **Sleep needed before this sleep**: ${formatDuration(v.need)} (baseline ${formatDuration(v.baseline)} + debt ${formatDuration(v.debt)} + strain ${formatDuration(v.strainNeed)} − naps ${formatDuration(v.napCredit == null ? null : Math.abs(v.napCredit))})\n`;
 						// Naps in the shown cycle: the ones WHOOP filed under it.
 						const naps = cycle ? sleeps.filter(candidate => candidate.nap && candidate.cycle_id === cycle.id) : [];
 						for (const nap of naps) {
 							const n = sleepView(nap);
-							response += `- **Nap** ${localTime(nap.start, nap.timezone_offset)}–${localTime(nap.end, nap.timezone_offset)}: ${formatDuration(n.asleep)} asleep, ${formatDuration(n.inBed)} in bed\n`;
+							const state = nap.score_state === 'SCORED' ? '' : ` (${scoreStateLabel(nap.score_state)})`;
+							response += `- **Nap** ${dayOf(nap.start, nap.timezone_offset, false)} ${localTime(nap.start, nap.timezone_offset)}–${localTime(nap.end, nap.timezone_offset)}: ${formatDuration(n.asleep)} asleep, ${formatDuration(n.inBed)} in bed${state}\n`;
 						}
 						response += '\n';
 					}
@@ -272,7 +278,7 @@ export function createMcpServer({ client, authStates, redirectUri, whoopConfigur
 						}
 						response += `- **Calories**: ${num(c.calories, 0, ' kcal')}\n`;
 						response += `- **Avg HR**: ${num(c.avgHr, 0, ' bpm')}, **max HR**: ${num(c.maxHr, 0, ' bpm')}\n`;
-						if (c.steps != null) response += `- **Steps**: ${num(c.steps)}\n`;
+						response += `- **Steps**: ${num(c.steps)}\n`;
 					}
 
 					const notice = updates?.notice();
@@ -287,8 +293,9 @@ export function createMcpServer({ client, authStates, redirectUri, whoopConfigur
 					const [recoveries, cycles] = await Promise.all([client.recoveries(query), client.cycles(query)]);
 					const cyclesById = new Map(cycles.map(cycle => [cycle.id, cycle]));
 					// Days are the user's local days (see days.ts): a recovery belongs to the same day as its cycle.
+					const unreadable = recoveries.filter(recovery => !readable(recovery.created_at)).length;
 					const rows = recoveries
-						.filter(recovery => recovery.created_at >= since)
+						.filter(recovery => readable(recovery.created_at) && recovery.created_at >= since)
 						.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
 						.map(recovery => {
 							const cycle = cyclesById.get(recovery.cycle_id);
@@ -300,7 +307,7 @@ export function createMcpServer({ client, authStates, redirectUri, whoopConfigur
 						return text('No recovery data available for the requested period.');
 					}
 
-					let response = `# Recovery Trends (Last ${days} Days)\n\n`;
+					let response = `# Recovery Trends (Last ${days} Days)\n\n${skippedLine(unreadable)}`;
 					response += table(
 						['Date', 'Recovery', 'HRV (ms)', 'RHR (bpm)', 'SpO2 (%)', 'Skin temp (°C)', 'Calibrating'],
 						rows.map(r => [
@@ -325,7 +332,9 @@ export function createMcpServer({ client, authStates, redirectUri, whoopConfigur
 					const days = validateDays(typedArgs.days);
 					const { since, query } = period(days);
 					// A night counts toward the day the user woke up; a nap toward the day it started.
-					const all = (await client.sleeps(query)).filter(sleep => sleep.start >= since).sort(newestFirst);
+					const fetched = await client.sleeps(query);
+					const unreadable = fetched.filter(sleep => !readable(sleep.start, sleep.end)).length;
+					const all = fetched.filter(sleep => readable(sleep.start, sleep.end) && sleep.start >= since).sort(newestFirst);
 					const nights = all.filter(sleep => !sleep.nap).map(sleep => ({ sleep, date: dayOf(sleep.start, sleep.timezone_offset), ...sleepView(sleep) }));
 					const naps = all.filter(sleep => sleep.nap).map(sleep => ({ sleep, date: dayOf(sleep.start, sleep.timezone_offset, false), ...sleepView(sleep) }));
 
@@ -333,7 +342,7 @@ export function createMcpServer({ client, authStates, redirectUri, whoopConfigur
 						return text('No sleep data available for the requested period.');
 					}
 
-					let response = `# Sleep Analysis (Last ${days} Days)\n\n`;
+					let response = `# Sleep Analysis (Last ${days} Days)\n\n${skippedLine(unreadable)}`;
 					if (nights.length > 0) {
 						response += table(
 							['Date', 'Bed', 'Wake', 'Asleep', 'In bed', 'Deep', 'REM', 'Light', 'Awake', 'Performance', 'Efficiency'],
@@ -346,25 +355,26 @@ export function createMcpServer({ client, authStates, redirectUri, whoopConfigur
 						);
 						response += '\n### Details\n';
 						response += table(
-							['Date', 'Bed', 'No data', 'Cycles', 'Disturbances', 'Consistency', 'Resp. rate (/min)', 'Need', 'Baseline', 'Debt', 'Strain', 'Nap credit'],
+							['Date', 'Bed', 'No data', 'Cycles', 'Disturbances', 'Consistency', 'Resp. rate (/min)', 'Need', 'Baseline', 'Debt', 'From strain', 'Nap credit'],
 							nights.map(n => [
 								n.date, localTime(n.sleep.start, n.sleep.timezone_offset), formatDuration(n.noData), num(n.cycles), num(n.disturbances),
 								num(n.consistency, 0, '%'), num(n.respiratory, 1), formatDuration(n.need), formatDuration(n.baseline), formatDuration(n.debt),
-								formatDuration(n.strainNeed), formatDuration(n.napCredit),
+								formatDuration(n.strainNeed), formatDuration(n.napCredit == null ? null : Math.abs(n.napCredit)),
 							]),
 						);
-						response += 'Asleep = light + deep + REM. Need = what the body needed going into that night: baseline + debt + strain − naps.\n';
+						response += '\nAsleep = light + deep + REM. Need = what the body needed going into that night: baseline + debt + from strain − nap credit.\n';
 					}
 					if (naps.length > 0) {
 						response += '\n### Naps\n';
 						response += table(
 							['Date', 'Start', 'End', 'Asleep', 'In bed'],
-							naps.map(n => [n.date, localTime(n.sleep.start, n.sleep.timezone_offset), localTime(n.sleep.end, n.sleep.timezone_offset), formatDuration(n.asleep), formatDuration(n.inBed)]),
+							naps.map(n => [n.date, localTime(n.sleep.start, n.sleep.timezone_offset), localTime(n.sleep.end, n.sleep.timezone_offset),
+								n.sleep.score_state === 'SCORED' ? formatDuration(n.asleep) : scoreStateLabel(n.sleep.score_state), formatDuration(n.inBed)]),
 						);
 					}
 					if (nights.length > 0) {
 						const N = nights.length;
-						response += `\n## Averages (${N} nights${naps.length ? `, ${naps.length} naps` : ''})\n`;
+						response += `\n## Averages over the ${N} night${N === 1 ? '' : 's'}${naps.length ? ` (naps not averaged: ${naps.length})` : ''}\n`;
 						response += averageLine('Asleep', nights.map(n => n.asleep), formatDuration, N, 'nights');
 						response += averageLine('In bed', nights.map(n => n.inBed), formatDuration, N, 'nights');
 						response += averageLine('Deep', nights.map(n => n.deep), formatDuration, N, 'nights');
@@ -385,8 +395,10 @@ export function createMcpServer({ client, authStates, redirectUri, whoopConfigur
 				case 'get_strain_history': {
 					const days = validateDays(typedArgs.days);
 					const { since, query } = period(days);
-					const rows = (await client.cycles(query))
-						.filter(cycle => cycle.start >= since)
+					const fetchedCycles = await client.cycles(query);
+					const unreadable = fetchedCycles.filter(cycle => !readable(cycle.start, cycle.end)).length;
+					const rows = fetchedCycles
+						.filter(cycle => readable(cycle.start, cycle.end) && cycle.start >= since)
 						.sort(newestFirst)
 						.map(cycle => ({ cycle, date: dayOf(cycle.start, cycle.timezone_offset), ...cycleView(cycle) }));
 
@@ -394,7 +406,7 @@ export function createMcpServer({ client, authStates, redirectUri, whoopConfigur
 						return text('No strain data available for the requested period.');
 					}
 
-					let response = `# Strain History (Last ${days} Days)\n\n`;
+					let response = `# Strain History (Last ${days} Days)\n\n${skippedLine(unreadable)}`;
 					response += table(
 						['Date', 'Strain', 'Calories (kcal)', 'Avg HR (bpm)', 'Max HR (bpm)', 'Steps'],
 						rows.map(r => [
@@ -418,19 +430,21 @@ export function createMcpServer({ client, authStates, redirectUri, whoopConfigur
 				case 'get_workouts': {
 					const days = validateDays(typedArgs.days);
 					const { since, query } = period(days);
-					const workouts = (await client.workouts(query)).filter(workout => workout.start >= since).sort(newestFirst);
+					const fetchedWorkouts = await client.workouts(query);
+					const unreadable = fetchedWorkouts.filter(workout => !readable(workout.start, workout.end)).length;
+					const workouts = fetchedWorkouts.filter(workout => readable(workout.start, workout.end) && workout.start >= since).sort(newestFirst);
 
 					if (workouts.length === 0) {
 						return text(`No workouts recorded in the last ${days} days.`);
 					}
 
 					const rows = workouts.map(w => ({ w, date: dayOf(w.start, w.timezone_offset, false), start: localTime(w.start, w.timezone_offset), ...workoutView(w) }));
-					let response = `# Workouts (Last ${days} Days)\n\n`;
+					let response = `# Workouts (Last ${days} Days)\n\n${skippedLine(unreadable)}`;
 					response += table(
 						['Date', 'Start', 'Activity', 'Duration', 'Strain', 'Avg HR (bpm)', 'Max HR (bpm)', 'Zones 4–5', 'Calories (kcal)'],
 						rows.map(r => [
 							r.date, r.start, sportName(r.w.sport_name), formatDuration(r.duration),
-							r.scored ? num(r.strain, 1) : 'unscored',
+							r.scored ? num(r.strain, 1) : scoreStateLabel(r.w.score_state),
 							num(r.avgHr), num(r.maxHr), formatDuration(r.hard), num(r.calories),
 						]),
 					);
@@ -445,7 +459,7 @@ export function createMcpServer({ client, authStates, redirectUri, whoopConfigur
 
 					const scored = rows.filter(r => r.scored && r.strain != null);
 					const sum = (values: (number | null)[]) => values.some(v => v != null) ? values.reduce<number>((total, v) => total + (v ?? 0), 0) : null;
-					response += `\n## Totals (${rows.length} workouts${scored.length < rows.length ? `, ${scored.length} scored` : ''})\n`;
+					response += `\n## Totals (${rows.length} workouts${scored.length < rows.length ? `, ${scored.length} scored: the others count as zero below` : ''})\n`;
 					response += `- **Time**: ${formatDuration(sum(rows.map(r => r.duration)))}\n`;
 					response += `- **Average strain**: ${num(mean(scored.map(r => r.strain)).value, 1)}\n`;
 					response += `- **Time in heart-rate zones 4–5**: ${formatDuration(sum(rows.map(r => r.hard)))}\n`;

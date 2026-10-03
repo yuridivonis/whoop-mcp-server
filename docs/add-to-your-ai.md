@@ -19,8 +19,8 @@ Menus, plans and policies below are as each vendor's own documentation described
 
 | App | Status | Last tested live |
 |---|---|---|
-| Claude (claude.ai on the web) | ✅ Works | 26 Sep 2026, server 1.3.0 |
-| ChatGPT (Business workspace, on the web) | ✅ Works | 26 Sep 2026, server 1.3.0 |
+| Claude (claude.ai on the web) | ✅ Works | 3 Oct 2026, server 1.5.1 |
+| ChatGPT (Business workspace, on the web) | ✅ Works | 28 Sep 2026, server 1.4.1 |
 | Claude Desktop and mobile | Should work: they use the connectors you add on claude.ai | Not yet |
 | Claude Code | Should work: its documented callback address passes the automated tests | Not yet |
 | Cursor (desktop) | Should work: its documented callback address passes the automated tests | Not yet |
@@ -34,7 +34,7 @@ Menus, plans and policies below are as each vendor's own documentation described
 
 ## Claude
 
-**Tested live on 26 Sep 2026.**
+**Tested live on 3 Oct 2026 (server 1.5.1).**
 
 Per [Anthropic's help center](https://support.claude.com/en/articles/11175166) (Sep 2026):
 
@@ -54,7 +54,7 @@ Per [Anthropic's privacy center](https://privacy.claude.com/en/articles/12109829
 
 ## ChatGPT
 
-**Tested live on 26 Sep 2026, in a ChatGPT Business workspace.** ChatGPT calls these *MCP apps*.
+**Tested live on 28 Sep 2026 (server 1.4.1), in a ChatGPT Business workspace.** ChatGPT calls these *MCP apps*.
 
 1. In ChatGPT on the web, go to **Settings → Plugins → Add → Create MCP App**.
    - If there's no **Create MCP App**, turn on **Developer mode** under **Settings → Security and login**.

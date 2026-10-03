@@ -4,8 +4,8 @@
 
 | Version | Supported |
 |---------|-----------|
-| 1.4.x   | Yes |
-| 1.3.x   | No. Upgrading needs no changes: redeploy, or let Railway's auto updates do it. |
+| 1.5.x   | Yes |
+| 1.3.x to 1.4.x | No. Upgrading needs no changes: redeploy, or let Railway's auto updates do it. |
 | 1.1.x to 1.2.x | No. They keep a copy of your Whoop data. Upgrade as described in [Upgrading to 1.3.0](README.md#upgrading-to-130). |
 | 1.0.x   | No. `/mcp` has no authentication. Upgrade as described in [Upgrading from 1.0.0](README.md#upgrading-from-100), then to 1.3.0. |
 

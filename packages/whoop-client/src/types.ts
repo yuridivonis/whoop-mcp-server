@@ -77,10 +77,13 @@ export interface WhoopCycle {
 	timezone_offset: string;
 	score_state: ScoreState;
 	score?: {
+		/** WHOOP's cardiovascular load for the cycle, 0–21. */
 		strain: number;
 		/** Energy expended during the cycle, in kilojoules. */
 		kilojoule: number;
+		/** Beats per minute. */
 		average_heart_rate: number;
+		/** Beats per minute. */
 		max_heart_rate: number;
 	};
 	/** Steps taken during the cycle. Null when WHOOP has no step data for it; absent on older records. */
@@ -103,19 +106,27 @@ export interface WhoopBodyMeasurement {
 	max_heart_rate: number;
 }
 
+/** How recovered the user is for a cycle. API v2 `Recovery`. */
 export interface WhoopRecovery {
 	cycle_id: number;
+	/** The sleep the recovery was scored from. */
 	sleep_id: string;
 	user_id: number;
 	created_at: string;
 	updated_at: string;
 	score_state: ScoreState;
 	score?: {
+		/** True while WHOOP is still learning the user's baseline and can't score fully. */
 		user_calibrating: boolean;
+		/** 0–100 %. */
 		recovery_score: number;
+		/** Beats per minute. */
 		resting_heart_rate: number;
+		/** Heart rate variability (RMSSD), in milliseconds. */
 		hrv_rmssd_milli: number;
+		/** Blood oxygen, 0–100 %. Only on WHOOP 4.0 or later. */
 		spo2_percentage?: number;
+		/** Skin temperature, in °C. Only on WHOOP 4.0 or later. */
 		skin_temp_celsius?: number;
 	};
 }
@@ -179,9 +190,13 @@ export interface WhoopWorkout {
 	sport_id?: number;
 	score_state: ScoreState;
 	score?: {
+		/** WHOOP's cardiovascular load for the workout, 0–21. */
 		strain: number;
+		/** Beats per minute. */
 		average_heart_rate: number;
+		/** Beats per minute. */
 		max_heart_rate: number;
+		/** Energy expended, in kilojoules. */
 		kilojoule: number;
 		/** Share (0–100) of the workout for which WHOOP received heart-rate data. */
 		percent_recorded: number;

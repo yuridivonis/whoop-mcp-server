@@ -7,7 +7,7 @@ All notable changes to this project are documented here. The format follows [Kee
 ### Changed
 
 - **The WHOOP client's types cover every field of WHOOP's API v2 models** (steps, sleep need, disturbances, workout distance and elevation, the calibrating flag, …), each documented with its unit; `sport_name` is required and `sport_id` optional, as WHOOP has it since September 2025. New types `WhoopProfile` and `WhoopBodyMeasurement` (no method fetches them yet).
-- **One retry when WHOOP hiccups:** a data read turned away with a 429 naming a short wait (up to 10 seconds), or with a 500, 502, 503 or 504, is sent once more after the wait. Never the token endpoint. The rate-limit message now says how long to wait when WHOOP said.
+- **One retry when WHOOP hiccups:** a page of a data read turned away with a 429 (naming a wait of up to 10 seconds, or none), or with a 500, 502, 503 or 504, is sent once more after the wait. Never the token endpoint. The rate-limit and outage messages now say how long to wait when WHOOP said.
 - **A 200 that isn't JSON, or has no records, is a `WhoopProtocolError`** naming the endpoint, instead of a raw `SyntaxError`.
 
 ## [1.4.9] - 2026-10-01

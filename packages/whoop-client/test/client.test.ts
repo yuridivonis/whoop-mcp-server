@@ -1037,7 +1037,7 @@ describe('WhoopClient retries', () => {
 		await after.client.cycles();
 		assert.deepEqual(after.waits, [5000]);
 		const twice = flaky(down(503), down(502));
-		await assert.rejects(twice.client.cycles(), (error: unknown) => error instanceof WhoopUnavailableError && error.status === 502 && error.message.includes('answered 502, twice'));
+		await assert.rejects(twice.client.cycles(), (error: unknown) => error instanceof WhoopUnavailableError && error.status === 502 && error.message.includes('answered 502 after a retry'));
 		assert.equal(twice.whoop.apiCalls.length, 2);
 	});
 
@@ -1045,6 +1045,63 @@ describe('WhoopClient retries', () => {
 		const { client, waits } = flaky(down(503, { 'X-RateLimit-Reset': '60' }));
 		await client.cycles();
 		assert.deepEqual(waits, [1000], 'a second, not the rate-limit header, and no refusal for being over the cap');
+	});
+
+	it("doesn't wait out a 5xx whose Retry-After is over the cap, and says how long WHOOP asked for", async () => {
+		const { whoop, client, waits } = flaky(down(503, { 'Retry-After': '90' }));
+		await assert.rejects(client.cycles(), (error: unknown) => error instanceof WhoopUnavailableError && error.message.includes('Try again in 90 seconds.'));
+		assert.deepEqual(waits, []);
+		assert.equal(whoop.apiCalls.length, 1);
+	});
+
+	it('reads a decimal reset, treats a reset over a day or a Retry-After date as unknown, and sits exactly on the cap', async () => {
+		const decimal = flaky(limited({ 'X-RateLimit-Reset': '2.5' }));
+		await decimal.client.cycles();
+		assert.deepEqual(decimal.waits, [3500]);
+		const huge = flaky(limited({ 'X-RateLimit-Reset': '99999999' }));
+		await huge.client.cycles();
+		assert.deepEqual(huge.waits, [1000]);
+		const date = flaky(limited({ 'Retry-After': 'Wed, 21 Oct 2026 07:28:00 GMT' }));
+		await date.client.cycles();
+		assert.deepEqual(date.waits, [1000]);
+		const ten = flaky(limited({ 'X-RateLimit-Reset': '10' }));
+		await ten.client.cycles();
+		assert.deepEqual(ten.waits, [11000]);
+		const eleven = flaky(limited({ 'X-RateLimit-Reset': '11' }));
+		await assert.rejects(eleven.client.cycles(), WhoopRateLimitError);
+		assert.deepEqual(eleven.waits, []);
+	});
+
+	it('reports a 429 after a retried 5xx as the rate limit, in its own words', async () => {
+		const { client } = flaky(down(503), limited({ 'X-RateLimit-Reset': '30' }));
+		await assert.rejects(client.cycles(), (error: unknown) => error instanceof WhoopRateLimitError && error.message === "WHOOP's rate limit was reached. Try again in 30 seconds.");
+	});
+
+	it('shares one retry between callers that joined the same read', async () => {
+		const { whoop, client, waits } = flaky(down(503));
+		await Promise.all([client.cycles(), client.cycles()]);
+		assert.deepEqual(waits, [1000]);
+		assert.equal(whoop.apiCalls.length, 2);
+	});
+
+	it('resends with the token that is current after the wait, and refreshes against that one on a 401', async () => {
+		// During the wait, another request on the same client refreshes the tokens.
+		let call = 0;
+		const whoop = new FakeWhoop((_url, bearer, method) => {
+			call++;
+			if (call === 1) return json({}, 503);
+			if (call === 2) return json({}, 401); // the resend, answered 401
+			return bearer === 'access-2' ? ok(method) : json({}, 401);
+		});
+		const store = new MemoryStore(tokens(60_000)); // inside the refresh window: the first request refreshes to access-1
+		let client: WhoopClient;
+		client = new WhoopClient({
+			clientId: 'client-id', clientSecret: 'client-secret', redirectUri: 'http://localhost:3000/callback', store, fetch: whoop.fetch,
+			retry: { wait: async () => {} },
+		});
+		await client.cycles();
+		assert.equal(whoop.tokenCalls.length, 2, 'one refresh before the first send, one after the 401 on the resend');
+		assert.deepEqual(whoop.replays, [], 'no refresh token presented twice');
 	});
 
 	it('retries only once: a 429 after the retry is reported, not waited out again', async () => {
@@ -1089,7 +1146,7 @@ describe('WhoopClient retries', () => {
 			clientId: 'client-id', clientSecret: 'client-secret', redirectUri: 'http://localhost:3000/callback',
 			store: new MemoryStore(tokens(HOUR)), fetch: new FakeWhoop(() => json({}, 503)).fetch, retry: false,
 		});
-		await assert.rejects(off.cycles(), (error: unknown) => error instanceof WhoopUnavailableError && !error.message.includes('twice'));
+		await assert.rejects(off.cycles(), (error: unknown) => error instanceof WhoopUnavailableError && !error.message.includes('after a retry'));
 
 		let calls = 0;
 		const whoop = new FakeWhoop((_url, _bearer, method) => (calls++ === 0 ? json({}, 503) : ok(method)));
@@ -1122,8 +1179,9 @@ describe('WhoopClient protocol errors on data reads', () => {
 	});
 
 	it('wraps a JSON body without a records array, and one whose next_token is not a string', async () => {
-		await assert.rejects(serving(() => json({ data: [] })).cycles(), (error: unknown) => error instanceof WhoopProtocolError && error.message === "WHOOP's answer to GET /v2/cycle has no records array.");
+		await assert.rejects(serving(() => json({ records: {} })).cycles(), (error: unknown) => error instanceof WhoopProtocolError && error.message === "WHOOP's answer to GET /v2/cycle has no records array.");
 		await assert.rejects(serving(() => json([])).cycles(), WhoopProtocolError);
+		assert.deepEqual(await serving(() => json({})).cycles(), [], "a page without records is an empty page: WHOOP's spec doesn't require the key");
 		await assert.rejects(serving(() => json({ records: [], next_token: 7 })).cycles(), (error: unknown) => error instanceof WhoopProtocolError && /next_token that isn't a string/.test(error.message));
 	});
 

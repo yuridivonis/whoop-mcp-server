@@ -17,7 +17,7 @@ const TOKEN_URL = 'https://api.prod.whoop.com/oauth/oauth2/token';
 /** What WHOOP's token endpoint does with one refresh request. */
 type TokenOutcome = 'ok' | 'refused' | 'rate-limited' | 'never-sent' | 'failed-before-rotating' | 'failed-after-rotating';
 /** What WHOOP's API does with one data request (on top of rejecting stale access tokens). */
-type ApiOutcome = 'ok' | 'rejected' | 'unavailable';
+type ApiOutcome = 'ok' | 'rejected' | 'unavailable' | 'rate-limited';
 
 /** Refresh tokens are `refresh-<grant>-<n>`: a reconnect starts a newer grant. */
 function order(refreshToken: string): [number, number] {
@@ -136,6 +136,7 @@ class ScheduledWhoop {
 		if (outcome === 'rejected' && newest) this.dead.add(grantOf(bearer));
 		if (outcome === 'rejected' || !newest) return Response.json({}, { status: 401 });
 		if (outcome === 'unavailable') return Response.json({}, { status: 503 });
+		if (outcome === 'rate-limited') return Response.json({}, { status: 429, headers: { 'X-RateLimit-Reset': '2' } });
 		if (init?.method === 'DELETE') {
 			if (this.revokeModel === 'user') {
 				for (let grant = 0; grant <= this.grants; grant++) this.revoked.add(grant);
@@ -201,7 +202,7 @@ class Row {
 }
 
 const tokenOutcome = fc.constantFrom<TokenOutcome>('ok', 'ok', 'refused', 'rate-limited', 'never-sent', 'failed-before-rotating', 'failed-after-rotating');
-const apiOutcome = fc.constantFrom<ApiOutcome>('ok', 'ok', 'rejected', 'unavailable');
+const apiOutcome = fc.constantFrom<ApiOutcome>('ok', 'ok', 'rejected', 'unavailable', 'rate-limited');
 
 describe('the refresh rules, under random races and failures', () => {
 	it('never present a refresh token WHOOP may have spent, never go back to older tokens, never forget a live authorization, and always settle', async () => {

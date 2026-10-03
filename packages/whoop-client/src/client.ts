@@ -5,6 +5,7 @@ import {
 	WhoopRateLimitError,
 	WhoopRequestError,
 	WhoopUnavailableError,
+	waitPhrase,
 } from './errors.js';
 import type {
 	StoredWhoopTokens,
@@ -65,11 +66,12 @@ interface Sent {
 // Network errors that mean the request never left this machine.
 const NOT_SENT = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'EHOSTUNREACH', 'ENETUNREACH', 'UND_ERR_CONNECT_TIMEOUT']);
 
-/** A whole number of seconds from a header, if that's what it holds. (Retry-After may also be a date; that form isn't read.) */
+/** A number of seconds from a header, if that's what it holds and it's under a day. (Retry-After may also be a date; that form isn't read.) */
 function headerSeconds(response: Response, name: string): number | undefined {
 	const value = response.headers.get(name)?.trim();
-	if (!value || !/^\d{1,6}$/.test(value)) return undefined;
-	return Number(value);
+	if (!value || !/^\d+(\.\d+)?$/.test(value)) return undefined;
+	const seconds = Number(value);
+	return seconds <= 86_400 ? seconds : undefined;
 }
 
 /** Seconds until WHOOP's rate limit resets: X-RateLimit-Reset, else Retry-After, if either is a readable number. */
@@ -78,9 +80,17 @@ function resetSeconds(response: Response): number | undefined {
 }
 
 async function failure(response: Response, what: string, retried = false): Promise<Error> {
-	if (response.status === 429) return new WhoopRateLimitError({ resetSeconds: resetSeconds(response) });
+	if (response.status === 429) {
+		void response.body?.cancel().catch(() => {});
+		return new WhoopRateLimitError({ resetSeconds: resetSeconds(response) });
+	}
 	if (response.status >= 500) {
-		return new WhoopUnavailableError(`WHOOP is unavailable right now (${what} answered ${response.status}${retried ? ', twice' : ''}). Try again in a minute.`, { status: response.status });
+		void response.body?.cancel().catch(() => {});
+		const wait = headerSeconds(response, 'retry-after');
+		return new WhoopUnavailableError(
+			`WHOOP is unavailable right now (${what} answered ${response.status}${retried ? ' after a retry' : ''}). Try again ${wait === undefined ? 'in a minute' : waitPhrase(wait)}.`,
+			{ status: response.status },
+		);
 	}
 	return new WhoopRequestError(`WHOOP refused the request (${what} answered ${response.status}): ${(await response.text()).slice(0, 200)}`, response.status);
 }
@@ -101,13 +111,14 @@ async function readPage<T>(response: Response, what: string): Promise<WhoopPage<
 		throw new WhoopProtocolError(`WHOOP answered ${what} with something that isn't JSON (content-type: ${contentType}).`, { cause: error });
 	}
 	const page = body as { records?: unknown; next_token?: unknown } | null;
-	if (!page || typeof page !== 'object' || !Array.isArray(page.records)) {
+	// WHOOP's spec doesn't mark `records` required, so a page without it is an empty page; anything else there is not.
+	if (!page || typeof page !== 'object' || Array.isArray(page) || (page.records !== undefined && !Array.isArray(page.records))) {
 		throw new WhoopProtocolError(`WHOOP's answer to ${what} has no records array.`);
 	}
 	if (page.next_token !== undefined && page.next_token !== null && typeof page.next_token !== 'string') {
 		throw new WhoopProtocolError(`WHOOP's answer to ${what} has a next_token that isn't a string.`);
 	}
-	return { records: page.records as T[], ...(typeof page.next_token === 'string' ? { next_token: page.next_token } : {}) };
+	return { records: (page.records ?? []) as T[], ...(typeof page.next_token === 'string' ? { next_token: page.next_token } : {}) };
 }
 
 /** The OAuth `error` code in a token endpoint's answer, if it has one. */

@@ -63,7 +63,7 @@ export interface WhoopQuery {
 	limit?: number;
 }
 
-/** A physiological cycle: WHOOP's "day", from one wake-up to the next. API v2 `Cycle`. */
+/** A physiological cycle: WHOOP's "day", from falling asleep one night to falling asleep the next. API v2 `Cycle`. */
 export interface WhoopCycle {
 	id: number;
 	user_id: number;

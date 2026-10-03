@@ -10,11 +10,11 @@
 const OFFSET = /^([+-])(\d{2}):?(\d{2})$/;
 
 /**
- * Minutes east of UTC for a WHOOP timezone offset such as "+08:00" or "-0500". 0 when there
- * is no offset; null when there is one but it can't be read.
+ * Minutes east of UTC for a WHOOP timezone offset such as "+08:00", "-0500" or "Z". 0 when
+ * there is no offset; null when there is one but it can't be read.
  */
 export function parseOffset(offset: string | null): number | null {
-	if (!offset) return 0;
+	if (!offset || offset === 'Z') return 0;
 	const match = OFFSET.exec(offset);
 	if (!match) return null;
 	const minutes = Number(match[2]) * 60 + Number(match[3]);

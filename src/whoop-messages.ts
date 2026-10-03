@@ -1,4 +1,4 @@
-import { WhoopAuthError, WhoopRequestError, type WhoopError } from '@yuridivonis/whoop-client';
+import { WhoopAuthError, WhoopProtocolError, WhoopRequestError, type WhoopError } from '@yuridivonis/whoop-client';
 
 /**
  * What the tools and the log say about a WHOOP error. The WHOOP client's own messages are
@@ -21,6 +21,9 @@ export function whoopMessage(error: WhoopError): string {
 	}
 	if (error instanceof WhoopRequestError && error.oauthError !== undefined) {
 		return `WHOOP refused this server's app credentials (${error.oauthError}). Check WHOOP_CLIENT_ID and WHOOP_CLIENT_SECRET.`;
+	}
+	if (error instanceof WhoopProtocolError) {
+		return `Unexpected answer from WHOOP: ${error.message} If it keeps happening, check WHOOP's status page or open an issue.`;
 	}
 	return error.message;
 }

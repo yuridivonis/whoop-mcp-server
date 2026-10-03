@@ -1041,6 +1041,12 @@ describe('WhoopClient retries', () => {
 		assert.equal(twice.whoop.apiCalls.length, 2);
 	});
 
+	it('ignores X-RateLimit-Reset on a 5xx: only Retry-After names its wait', async () => {
+		const { client, waits } = flaky(down(503, { 'X-RateLimit-Reset': '60' }));
+		await client.cycles();
+		assert.deepEqual(waits, [1000], 'a second, not the rate-limit header, and no refusal for being over the cap');
+	});
+
 	it('retries only once: a 429 after the retry is reported, not waited out again', async () => {
 		const { whoop, client, waits } = flaky(down(503), limited({ 'X-RateLimit-Reset': '1' }));
 		await assert.rejects(client.cycles(), (error: unknown) => error instanceof WhoopRateLimitError && error.resetSeconds === 1 && error.message.includes('in a moment'));

@@ -220,7 +220,8 @@ describe('the refresh rules, under random races and failures', () => {
 					const whoop = new ScheduledWhoop(s, first, tokenOutcomes, apiOutcomes, revokeModel);
 					const row = new Row(s, first, saveFailures, whoop.authorizations, token => whoop.live(token));
 					const client = (store: TokenStore) =>
-						new WhoopClient({ clientId: 'id', clientSecret: 'secret', redirectUri: 'http://localhost:3000/callback', store, fetch: whoop.fetch });
+						// The retry's wait goes through the scheduler too, so a refresh or a revoke can land during it.
+						new WhoopClient({ clientId: 'id', clientSecret: 'secret', redirectUri: 'http://localhost:3000/callback', store, fetch: whoop.fetch, retry: { wait: s.scheduleFunction(async () => {}) as (ms: number) => Promise<void> } });
 					// A and B share one store object (one process); C has its own, as another process would.
 					const shared = row.store();
 					const clients = { A: client(shared), B: client(shared), C: client(row.store()) };
@@ -253,7 +254,7 @@ describe('the refresh rules, under random races and failures', () => {
 
 function cycles(count: number): WhoopCycle[] {
 	return Array.from({ length: count }, (_, i) => ({
-		id: i + 1, user_id: 1, start: new Date(Date.UTC(2026, 0, 1) + i * HOUR).toISOString(), end: null,
+		id: i + 1, user_id: 1, created_at: new Date(Date.UTC(2026, 0, 1) + i * HOUR).toISOString(), updated_at: new Date(Date.UTC(2026, 0, 1) + i * HOUR).toISOString(), start: new Date(Date.UTC(2026, 0, 1) + i * HOUR).toISOString(), end: null,
 		timezone_offset: '+00:00', score_state: 'SCORED' as const, score: { strain: 5, kilojoule: 1000, average_heart_rate: 60, max_heart_rate: 120 },
 	}));
 }
@@ -261,7 +262,7 @@ function cycles(count: number): WhoopCycle[] {
 function clientFor(whoop: FakeWhoop): WhoopClient {
 	let tokens: StoredWhoopTokens | null = { access_token: 'a', refresh_token: 'r', expires_at: Date.now() + HOUR };
 	return new WhoopClient({
-		clientId: 'id', clientSecret: 'secret', redirectUri: 'http://localhost:3000/callback', fetch: whoop.fetch,
+		clientId: 'id', clientSecret: 'secret', redirectUri: 'http://localhost:3000/callback', fetch: whoop.fetch, retry: { wait: async () => {} },
 		store: { load: async () => tokens, save: async saved => { tokens = saved; } },
 	});
 }

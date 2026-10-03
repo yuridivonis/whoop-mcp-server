@@ -57,9 +57,9 @@ function formatDate(day: string): string {
 	});
 }
 
-/** "functional-fitness" → "Functional fitness". */
-function sportName(name: string | null, sportId: number): string {
-	if (!name) return `Activity ${sportId}`;
+/** "functional-fitness" → "Functional fitness". WHOOP always names the sport; an empty name is shown as unknown. */
+function sportName(name: string | undefined): string {
+	if (!name) return 'Unknown activity';
 	const words = name.replace(/[-_]+/g, ' ').trim();
 	return words.charAt(0).toUpperCase() + words.slice(1);
 }
@@ -434,7 +434,7 @@ export function createMcpServer({ client, authStates, redirectUri, whoopConfigur
 						const strain = scored ? score?.strain?.toFixed(1) ?? 'N/A' : 'unscored';
 						const calories = score?.kilojoule != null ? `${Math.round(score.kilojoule / 4.184)} kcal` : 'N/A';
 						const zoneTime = zones === null ? 'N/A' : zones > 0 ? formatDuration(zones) : '0h 0m';
-						response += `| ${formatDate(localDate(w.start, w.timezone_offset))} | ${localTime(w.start, w.timezone_offset)} | ${sportName(w.sport_name ?? null, w.sport_id)} | ${formatDuration(duration)} | ${strain} | ${score?.average_heart_rate ?? 'N/A'} bpm | ${score?.max_heart_rate ?? 'N/A'} bpm | ${zoneTime} | ${calories} |\n`;
+						response += `| ${formatDate(localDate(w.start, w.timezone_offset))} | ${localTime(w.start, w.timezone_offset)} | ${sportName(w.sport_name)} | ${formatDuration(duration)} | ${strain} | ${score?.average_heart_rate ?? 'N/A'} bpm | ${score?.max_heart_rate ?? 'N/A'} bpm | ${zoneTime} | ${calories} |\n`;
 					}
 
 					const avgStrain = strains.length > 0 ? (strains.reduce((sum, value) => sum + value, 0) / strains.length).toFixed(1) : 'N/A';

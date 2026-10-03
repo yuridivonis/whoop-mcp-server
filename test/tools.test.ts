@@ -49,7 +49,7 @@ async function connect(
 	else if (connected) db.saveTokens({ access_token: 'whoop-access', refresh_token: 'whoop-refresh', expires_at: Date.now() + HOUR });
 	const whoop = new FakeWhoop();
 	const server = createMcpServer({
-		client: new WhoopClient({ clientId: 'id', clientSecret: 'secret', redirectUri: 'http://localhost:3000/callback', store: db.whoopTokens, fetch: whoop.fetch }),
+		client: new WhoopClient({ clientId: 'id', clientSecret: 'secret', redirectUri: 'http://localhost:3000/callback', store: db.whoopTokens, fetch: whoop.fetch, retry: { wait: async () => {} } }),
 		authStates: new PendingAuthStates(),
 		redirectUri: 'http://localhost:3000/callback',
 		whoopConfigured,
@@ -84,6 +84,8 @@ describe('data tools', () => {
 		const cycle: WhoopCycle = {
 			id: 1,
 			user_id: 1,
+			created_at: new Date(utcMidnight(-1) + 15.5 * HOUR).toISOString(),
+			updated_at: new Date(utcMidnight(-1) + 15.5 * HOUR).toISOString(),
 			start: new Date(utcMidnight(-1) + 15.5 * HOUR).toISOString(),
 			end: null,
 			timezone_offset: '+08:00',
@@ -94,6 +96,7 @@ describe('data tools', () => {
 		const wokeUp = new Date(utcMidnight(-1) + 23 * HOUR).toISOString();
 		const sleep: WhoopSleep = {
 			id: 'sleep-1',
+			cycle_id: 1,
 			user_id: 1,
 			created_at: wokeUp,
 			updated_at: wokeUp,
@@ -315,9 +318,9 @@ function night(daysAgo: number, recoveryScore: number): { cycle: WhoopCycle; sle
 	const end = new Date(utcMidnight(-daysAgo - 1) + 23 * HOUR).toISOString();
 	const id = 100 + daysAgo;
 	return {
-		cycle: { id, user_id: 1, start, end: null, timezone_offset: '+08:00', score_state: 'SCORED',
+		cycle: { id, user_id: 1, created_at: start, updated_at: end, start, end: null, timezone_offset: '+08:00', score_state: 'SCORED',
 			score: { strain: 10, kilojoule: 8000, average_heart_rate: 60, max_heart_rate: 150 } },
-		sleep: { id: `sleep-${id}`, user_id: 1, created_at: end, updated_at: end, start, end, timezone_offset: '+08:00', nap: false,
+		sleep: { id: `sleep-${id}`, cycle_id: id, user_id: 1, created_at: end, updated_at: end, start, end, timezone_offset: '+08:00', nap: false,
 			score_state: 'SCORED', score: {
 				stage_summary: { total_in_bed_time_milli: 28_800_000, total_awake_time_milli: 1_800_000, total_no_data_time_milli: 0,
 					total_light_sleep_time_milli: 14_000_000, total_slow_wave_sleep_time_milli: 6_000_000, total_rem_sleep_time_milli: 7_000_000,

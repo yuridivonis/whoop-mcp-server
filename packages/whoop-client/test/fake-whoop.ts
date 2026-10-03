@@ -38,6 +38,10 @@ export class FakeWhoop {
 	readonly exchangedCodes: string[] = [];
 	/** When set, every API request fails with this HTTP status. */
 	failWith?: number;
+	/** One-shot answers for the next API requests, in order: a status with optional headers, used once each. */
+	readonly failOnce: { status: number; headers?: Record<string, string> }[] = [];
+	/** One-shot raw bodies for the next API requests, in order, served with status 200. */
+	readonly bodyOnce: { body: string; contentType: string }[] = [];
 	/** When set, the token endpoint refuses the app's credentials with this HTTP status. */
 	refuseClientWith?: number;
 	/** How long each API request takes, so that requests made together overlap. */
@@ -57,6 +61,10 @@ export class FakeWhoop {
 		this.requests.push(url);
 		if (this.delayMs) await new Promise(resolve => setTimeout(resolve, this.delayMs));
 		if (this.failWith) return json({ error: 'failed' }, this.failWith);
+		const fail = this.failOnce.shift();
+		if (fail) return new Response(JSON.stringify({ error: 'failed' }), { status: fail.status, headers: { 'Content-Type': 'application/json', ...fail.headers } });
+		const raw = this.bodyOnce.shift();
+		if (raw) return new Response(raw.body, { status: 200, headers: { 'Content-Type': raw.contentType } });
 		if (init?.method === 'DELETE' && url.pathname === `${API_PATH}/v2/user/access`) return new Response(null, { status: 204 });
 
 		const endpoint = ENDPOINTS[url.pathname.replace(API_PATH, '')];

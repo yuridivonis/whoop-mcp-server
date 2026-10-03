@@ -186,7 +186,7 @@ describe('the update notice in get_today', () => {
 		db.saveTokens({ access_token: 'whoop-access', refresh_token: 'whoop-refresh', expires_at: Date.now() + DAY });
 		const whoop = new FakeWhoop();
 		const server = createMcpServer({
-			client: new WhoopClient({ clientId: 'id', clientSecret: 'secret', redirectUri: 'http://localhost:3000/callback', store: db.whoopTokens, fetch: whoop.fetch }),
+			client: new WhoopClient({ clientId: 'id', clientSecret: 'secret', redirectUri: 'http://localhost:3000/callback', store: db.whoopTokens, fetch: whoop.fetch, retry: { wait: async () => {} } }),
 			authStates: new PendingAuthStates(),
 			redirectUri: 'http://localhost:3000/callback',
 			whoopConfigured: true,
@@ -200,7 +200,7 @@ describe('the update notice in get_today', () => {
 		await client.connect(clientSide);
 		t.after(() => client.close());
 		whoop.records.cycles.push({
-			id: 1, user_id: 1, start: new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString(), end: null, timezone_offset: '+00:00',
+			id: 1, user_id: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), start: new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString(), end: null, timezone_offset: '+00:00',
 			score_state: 'SCORED', score: { strain: 8, kilojoule: 8000, average_heart_rate: 60, max_heart_rate: 150 },
 		});
 		const result = await client.callTool({ name: 'get_today', arguments: {} });

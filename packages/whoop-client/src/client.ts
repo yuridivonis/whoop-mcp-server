@@ -43,7 +43,17 @@ export interface WhoopClientOptions {
 	fetch?: typeof fetch;
 	/** How long each request to WHOOP may take, in milliseconds. Default 15 000. */
 	timeoutMs?: number;
+	/**
+	 * The one retry of a data read: after a 429 that names a wait of at most 10 seconds, or
+	 * after a 500, 502, 503 or 504, the request is sent once more. `false` turns it off;
+	 * `wait` replaces the timer, for tests. The token endpoint and revokeAccess() are never retried.
+	 */
+	retry?: false | { wait?: (ms: number) => Promise<void> };
 }
+
+// A 429 naming a longer wait than this isn't waited out: the caller is told the number instead.
+const MAX_RETRY_WAIT_SECONDS = 10;
+const RETRIED_STATUSES = new Set([429, 500, 502, 503, 504]);
 
 /** What one request presented to WHOOP, filled in as it goes, so revokeAccess() knows which grant it revoked. */
 interface Sent {
@@ -55,19 +65,49 @@ interface Sent {
 // Network errors that mean the request never left this machine.
 const NOT_SENT = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'EHOSTUNREACH', 'ENETUNREACH', 'UND_ERR_CONNECT_TIMEOUT']);
 
-/** Seconds until WHOOP's rate limit resets, from X-RateLimit-Reset, if it's a readable number. */
-function resetSeconds(response: Response): number | undefined {
-	const value = response.headers.get('x-ratelimit-reset')?.trim();
-	const seconds = value ? Number(value) : NaN;
-	return Number.isFinite(seconds) && seconds >= 0 ? seconds : undefined;
+/** A whole number of seconds from a header, if that's what it holds. (Retry-After may also be a date; that form isn't read.) */
+function headerSeconds(response: Response, name: string): number | undefined {
+	const value = response.headers.get(name)?.trim();
+	if (!value || !/^\d{1,6}$/.test(value)) return undefined;
+	return Number(value);
 }
 
-async function failure(response: Response, what: string): Promise<Error> {
+/** Seconds until WHOOP's rate limit resets: X-RateLimit-Reset, else Retry-After, if either is a readable number. */
+function resetSeconds(response: Response): number | undefined {
+	return headerSeconds(response, 'x-ratelimit-reset') ?? headerSeconds(response, 'retry-after');
+}
+
+async function failure(response: Response, what: string, retried = false): Promise<Error> {
 	if (response.status === 429) return new WhoopRateLimitError({ resetSeconds: resetSeconds(response) });
 	if (response.status >= 500) {
-		return new WhoopUnavailableError(`WHOOP is unavailable right now (${what} answered ${response.status}). Try again in a minute.`, { status: response.status });
+		return new WhoopUnavailableError(`WHOOP is unavailable right now (${what} answered ${response.status}${retried ? ', twice' : ''}). Try again in a minute.`, { status: response.status });
 	}
 	return new WhoopRequestError(`WHOOP refused the request (${what} answered ${response.status}): ${(await response.text()).slice(0, 200)}`, response.status);
+}
+
+/** The body of a 200 from a data endpoint, parsed and checked for the page shape. */
+async function readPage<T>(response: Response, what: string): Promise<WhoopPage<T>> {
+	let text: string;
+	try {
+		text = await response.text();
+	} catch (error) {
+		throw new WhoopUnavailableError(`WHOOP's answer to ${what} was cut off. Try again in a minute.`, { status: response.status, cause: error });
+	}
+	let body: unknown;
+	try {
+		body = JSON.parse(text);
+	} catch (error) {
+		const contentType = (response.headers.get('content-type') ?? 'none').replace(/[^\x20-\x7e]/g, '').slice(0, 60);
+		throw new WhoopProtocolError(`WHOOP answered ${what} with something that isn't JSON (content-type: ${contentType}).`, { cause: error });
+	}
+	const page = body as { records?: unknown; next_token?: unknown } | null;
+	if (!page || typeof page !== 'object' || !Array.isArray(page.records)) {
+		throw new WhoopProtocolError(`WHOOP's answer to ${what} has no records array.`);
+	}
+	if (page.next_token !== undefined && page.next_token !== null && typeof page.next_token !== 'string') {
+		throw new WhoopProtocolError(`WHOOP's answer to ${what} has a next_token that isn't a string.`);
+	}
+	return { records: page.records as T[], ...(typeof page.next_token === 'string' ? { next_token: page.next_token } : {}) };
 }
 
 /** The OAuth `error` code in a token endpoint's answer, if it has one. */
@@ -157,6 +197,8 @@ export class WhoopClient {
 	private readonly store: TokenStore;
 	private readonly fetch: typeof fetch;
 	private readonly timeoutMs: number;
+	/** Waits before the one retry of a data read; null when retries are off. */
+	private readonly wait: ((ms: number) => Promise<void>) | null;
 	/** The tokens this client sends. */
 	private tokens: WhoopTokens | null = null;
 	/** The refresh token this client last read from or saved to the store. */
@@ -176,6 +218,7 @@ export class WhoopClient {
 		this.store = options.store;
 		this.fetch = options.fetch ?? globalThis.fetch;
 		this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+		this.wait = options.retry === false ? null : options.retry?.wait ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
 	}
 
 	/**
@@ -436,8 +479,24 @@ export class WhoopClient {
 		}
 
 		sent.tokens = this.tokens;
-		const sentToken = this.tokens.access_token;
+		let sentToken = this.tokens.access_token;
 		let response = await this.send(url, { method, headers: { Authorization: `Bearer ${sentToken}` } });
+
+		// The one retry: a data read turned away by the rate limit for a short while, or by a
+		// WHOOP outage, is sent once more after the wait WHOOP named (or a second). Only GETs:
+		// a revoke must not be repeated, and the token endpoint has its own rules.
+		let retried = false;
+		const retryAfter = method === 'GET' && this.wait && RETRIED_STATUSES.has(response.status) ? this.retryWait(response) : undefined;
+		if (retryAfter !== undefined) {
+			void response.body?.cancel().catch(() => {});
+			await this.wait!(retryAfter);
+			// The wait may have outlasted the connection: a revoke meanwhile, or a refresh by another request.
+			if (!this.tokens) throw new WhoopAuthError('not_connected');
+			sent.tokens = this.tokens;
+			sentToken = this.tokens.access_token;
+			response = await this.send(url, { method, headers: { Authorization: `Bearer ${sentToken}` } });
+			retried = true;
+		}
 
 		if (response.status === 401) {
 			// One refresh and one retry, never more. If another request already refreshed
@@ -452,9 +511,21 @@ export class WhoopClient {
 		}
 
 		if (!response.ok) {
-			throw await failure(response, `${method} ${path}`);
+			throw await failure(response, `${method} ${path}`, retried);
 		}
 		return response;
+	}
+
+	/**
+	 * How long to wait before the retry, in milliseconds, or undefined when the answer isn't
+	 * worth retrying: a 429 naming a wait over the cap (the caller is told the number instead).
+	 * A second is added to a named wait, since WHOOP's headers are whole seconds, rounded down.
+	 */
+	private retryWait(response: Response): number | undefined {
+		const named = response.status === 429 ? resetSeconds(response) : headerSeconds(response, 'retry-after');
+		if (named === undefined) return 1000;
+		if (named > MAX_RETRY_WAIT_SECONDS) return undefined;
+		return (named + 1) * 1000;
 	}
 
 	private async fetchAll<T>(path: string, { start, end, limit }: WhoopQuery): Promise<T[]> {
@@ -469,7 +540,7 @@ export class WhoopClient {
 			if (end) params.end = end;
 			if (nextToken) params.nextToken = nextToken;
 
-			const response = await (await this.request('GET', path, params)).json() as WhoopPage<T>;
+			const response = await readPage<T>(await this.request('GET', path, params), `GET ${path}`);
 			results.push(...response.records);
 			nextToken = response.next_token;
 

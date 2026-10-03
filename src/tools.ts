@@ -24,7 +24,7 @@ function skippedLine(count: number): string {
 }
 import { whoopMessage } from './whoop-messages.js';
 
-export const SERVER_VERSION = '1.4.9';
+export const SERVER_VERSION = '1.5.0';
 
 export interface ToolDeps {
 	client: WhoopClient;

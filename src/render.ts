@@ -72,11 +72,22 @@ export function readable(...timestamps: (string | null | undefined)[]): boolean 
 	return timestamps.every(value => value == null || Number.isFinite(Date.parse(value)));
 }
 
-/** What a record without a score is doing: still being scored, or beyond scoring. */
+/** What a record without a score is doing: still being scored, beyond scoring, or a state WHOOP added since (shown in its own words). */
 export function scoreStateLabel(state: string): string {
 	if (state === 'PENDING_SCORE') return 'pending';
 	if (state === 'UNSCORABLE') return "couldn't score";
-	return MISSING;
+	if (state === 'SCORED') return MISSING;
+	return String(state).toLowerCase().replace(/_/g, ' ').slice(0, 30) || MISSING;
+}
+
+/**
+ * The share of a workout with heart-rate data, as a whole percent. WHOOP's spec says 0–100,
+ * but the API sends a 0–1 fraction (seen live on 2026-10-03: 1 for a full recording), so a
+ * value of 1 or less is read as a fraction.
+ */
+export function recordedPercent(value: number | null | undefined): number | null {
+	if (value == null || !Number.isFinite(value)) return null;
+	return value <= 1 ? value * 100 : value;
 }
 
 /** The mean of the values that are present, with how many there were. */
@@ -183,7 +194,7 @@ export function workoutView(workout: WhoopWorkout) {
 		avgHr: s?.average_heart_rate ?? null,
 		maxHr: s?.max_heart_rate ?? null,
 		calories: kcal(s?.kilojoule),
-		recorded: s?.percent_recorded ?? null,
+		recorded: recordedPercent(s?.percent_recorded),
 		distance: s?.distance_meter ?? null,
 		gain: s?.altitude_gain_meter ?? null,
 		change: s?.altitude_change_meter ?? null,

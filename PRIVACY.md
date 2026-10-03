@@ -8,12 +8,14 @@ This notice describes how a Whoop MCP Server deployment handles your data. Each 
 
 When a tool needs it, the server reads only this from the Whoop API:
 
-- **Cycles:** day strain, calories, and average and maximum heart rate
-- **Recovery:** recovery score, heart rate variability, resting heart rate, blood oxygen, and skin temperature
-- **Sleep:** sleep times and stages, performance, efficiency, consistency, respiratory rate, and sleep need
-- **Workouts:** activity type, times, strain, heart rate, calories, and time in heart-rate zones
+- **Cycles:** day strain, calories, average and maximum heart rate, and steps
+- **Recovery:** recovery score, heart rate variability, resting heart rate, blood oxygen, skin temperature, and whether Whoop is still calibrating
+- **Sleep:** bed and wake times, time asleep, in bed, awake and without data, the sleep stages, sleep cycles, disturbances, performance, efficiency, consistency, respiratory rate, and the sleep needed with its parts (baseline, sleep debt, strain, nap credit)
+- **Workouts:** activity type, times, strain, heart rate, calories, time in each heart-rate zone, the share of heart-rate data recorded, and distance, elevation gain and altitude change when the workout recorded them
 
-Each record also carries its start and end times, the timezone offset where it was recorded, and your Whoop user ID. The server doesn't request your Whoop profile or body measurements.
+Every one of these values can appear in an answer to your AI app: the server passes on what Whoop sends, converted into readable units, with nothing held back.
+
+Each record also carries its start and end times, the timezone offset where it was recorded, and your Whoop user ID. The user ID, the records' identifiers and the timestamps of when Whoop recorded them aren't passed on to your AI app. The server doesn't request your Whoop profile or body measurements.
 
 ## Where it's stored
 

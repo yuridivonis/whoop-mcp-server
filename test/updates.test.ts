@@ -211,7 +211,7 @@ describe('the update notice in get_today', () => {
 		const updates = checker(fakeGitHub(release('v1.4.0')));
 		await updates.check();
 		const text = await today(t, updates);
-		assert.match(text, /## Current Strain/);
+		assert.match(text, /## Strain, /);
 		assert.match(text, /\n---\nUpdate available: version 1\.4\.0/);
 	});
 

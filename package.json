@@ -44,9 +44,9 @@
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
     "@types/express": "^5.0.0",
-    "@types/node": "^22.10.1",
+    "@types/node": "^22.20.4",
     "fast-check": "^4.10.2",
-    "tsx": "^4.23.13",
+    "tsx": "^4.23.15",
     "typescript": "^5.7.2"
   },
   "engines": {

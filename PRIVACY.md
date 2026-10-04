@@ -45,7 +45,7 @@ The database and the server's logs live with whichever provider hosts the server
 
 ## AI training
 
-The server doesn't use your data to train or improve AI models, and the project's tests use synthetic data only. WHOOP's [API Terms of Use](https://developer.whoop.com/api-terms-of-use/) also forbid using WHOOP data to create, develop, test, train or improve AI (4. WHOOP Data, *Prohibitions on WHOOP Data*). The tools' answers do become part of your conversation with the MCP client, and whether that provider uses conversations for training depends on its terms and your settings.
+The server doesn't use your data to train or improve AI models, and the project's tests use synthetic data only. (The project's weekly live check reads the maintainer's own Whoop data from the maintainer's own deployment, and has Claude read those answers through Anthropic's API, to check the server. It touches no other deployment and nobody else's data.) WHOOP's [API Terms of Use](https://developer.whoop.com/api-terms-of-use/) also forbid using WHOOP data to create, develop, test, train or improve AI (4. WHOOP Data, *Prohibitions on WHOOP Data*). The tools' answers do become part of your conversation with the MCP client, and whether that provider uses conversations for training depends on its terms and your settings.
 
 ## Contact
 

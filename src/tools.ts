@@ -7,12 +7,13 @@ import {
 	timeAsleepMilli,
 	type WhoopClient,
 	type WhoopQuery,
+	type WhoopRecovery,
 	type WhoopScope,
 	type WhoopSleep,
 } from '@yuridivonis/whoop-client';
 import type { PendingAuthStates } from './auth-states.js';
 import type { UpdateChecker } from './updates.js';
-import { localTime, wakeDay } from './days.js';
+import { localDate, localTime, wakeDay } from './days.js';
 import {
 	MISSING, averageLine, cycleView, dayOf, distance, formatDate, formatDuration, mean, num, recoveryView, recoveryZone,
 	readable, scoreStateLabel, sleepView, span, sportName, strainZone, table, workoutView,
@@ -24,7 +25,7 @@ function skippedLine(count: number): string {
 }
 import { whoopMessage } from './whoop-messages.js';
 
-export const SERVER_VERSION = '1.5.1';
+export const SERVER_VERSION = '1.5.2';
 
 export interface ToolDeps {
 	client: WhoopClient;
@@ -38,6 +39,8 @@ export interface ToolDeps {
 	mode: 'http' | 'stdio';
 	/** Adds a line to get_today when a newer release is out. Absent when UPDATE_CHECK=false. */
 	updates?: UpdateChecker;
+	/** The clock the period tools count days from. Tests pin it; the server uses Date.now. */
+	now?: () => number;
 }
 
 interface ToolArguments {
@@ -94,21 +97,29 @@ function text(value: string): CallToolResult {
 const CYCLE_LEAD_DAYS = 3;
 
 /**
- * The period the tools that take days cover: records from the start of the UTC date
- * `days` days ago (`since`). They ask WHOOP for a few days more, so each recovery's
- * cycle comes along, and every tool asking for the same days at the same moment makes
- * the same request, which the client then shares.
+ * The period the tools that take days cover: the user's last `days` local days, today
+ * included. A record is in the period when the day it counts toward (the wake day for
+ * nights, cycles and recoveries; the start's local date for naps and workouts), in the
+ * record's own timezone offset, is on or after the cutoff: the local date `days - 1` days
+ * before now. WHOOP is asked for a few days more, so records straddling the cutoff and
+ * each recovery's cycle come along; every tool asking for the same days at the same moment
+ * makes the same request, which the client then shares.
  */
-function period(days: number): { since: string; query: WhoopQuery } {
-	const since = new Date(Date.now() - days * DAY_MS).toISOString().slice(0, 10);
-	return { since, query: { start: new Date(Date.parse(since) - CYCLE_LEAD_DAYS * DAY_MS).toISOString() } };
+function period(days: number, now: number): { inPeriod: (day: string, offset: string | null) => boolean; query: WhoopQuery } {
+	const cutoffInstant = new Date(now - (days - 1) * DAY_MS).toISOString();
+	const since = new Date(now - days * DAY_MS).toISOString().slice(0, 10);
+	return {
+		// Both sides as YYYY-MM-DD in the record's own offset, so the comparison is a plain string one.
+		inPeriod: (day, offset) => day >= localDate(cutoffInstant, offset),
+		query: { start: new Date(Date.parse(since) - CYCLE_LEAD_DAYS * DAY_MS).toISOString() },
+	};
 }
 
 function newestFirst(a: { start: string }, b: { start: string }): number {
 	return Date.parse(b.start) - Date.parse(a.start);
 }
 
-export function createMcpServer({ client, authStates, redirectUri, whoopConfigured, publicUrl, mode, updates }: ToolDeps): Server {
+export function createMcpServer({ client, authStates, redirectUri, whoopConfigured, publicUrl, mode, updates, now = Date.now }: ToolDeps): Server {
 	const server = new Server(
 		{ name: 'whoop-mcp-server', version: SERVER_VERSION },
 		{ capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS }
@@ -289,13 +300,18 @@ export function createMcpServer({ client, authStates, redirectUri, whoopConfigur
 
 				case 'get_recovery_trends': {
 					const days = validateDays(typedArgs.days);
-					const { since, query } = period(days);
+					const { inPeriod, query } = period(days, now());
 					const [recoveries, cycles] = await Promise.all([client.recoveries(query), client.cycles(query)]);
 					const cyclesById = new Map(cycles.map(cycle => [cycle.id, cycle]));
 					// Days are the user's local days (see days.ts): a recovery belongs to the same day as its cycle.
+					// Without its cycle (not fetched), it's dated by the UTC date WHOOP recorded it.
+					const recoveryDay = (recovery: WhoopRecovery): [string, string | null] => {
+						const cycle = cyclesById.get(recovery.cycle_id);
+						return cycle ? [wakeDay(cycle.start, cycle.timezone_offset), cycle.timezone_offset] : [recovery.created_at.slice(0, 10), null];
+					};
 					const unreadable = recoveries.filter(recovery => !readable(recovery.created_at)).length;
 					const rows = recoveries
-						.filter(recovery => readable(recovery.created_at) && recovery.created_at >= since)
+						.filter(recovery => readable(recovery.created_at) && inPeriod(...recoveryDay(recovery)))
 						.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
 						.map(recovery => {
 							const cycle = cyclesById.get(recovery.cycle_id);
@@ -330,11 +346,14 @@ export function createMcpServer({ client, authStates, redirectUri, whoopConfigur
 
 				case 'get_sleep_analysis': {
 					const days = validateDays(typedArgs.days);
-					const { since, query } = period(days);
+					const { inPeriod, query } = period(days, now());
 					// A night counts toward the day the user woke up; a nap toward the day it started.
 					const fetched = await client.sleeps(query);
 					const unreadable = fetched.filter(sleep => !readable(sleep.start, sleep.end)).length;
-					const all = fetched.filter(sleep => readable(sleep.start, sleep.end) && sleep.start >= since).sort(newestFirst);
+					const all = fetched
+						.filter(sleep => readable(sleep.start, sleep.end)
+							&& inPeriod(sleep.nap ? localDate(sleep.start, sleep.timezone_offset) : wakeDay(sleep.start, sleep.timezone_offset), sleep.timezone_offset))
+						.sort(newestFirst);
 					const nights = all.filter(sleep => !sleep.nap).map(sleep => ({ sleep, date: dayOf(sleep.start, sleep.timezone_offset), ...sleepView(sleep) }));
 					const naps = all.filter(sleep => sleep.nap).map(sleep => ({ sleep, date: dayOf(sleep.start, sleep.timezone_offset, false), ...sleepView(sleep) }));
 
@@ -394,11 +413,11 @@ export function createMcpServer({ client, authStates, redirectUri, whoopConfigur
 
 				case 'get_strain_history': {
 					const days = validateDays(typedArgs.days);
-					const { since, query } = period(days);
+					const { inPeriod, query } = period(days, now());
 					const fetchedCycles = await client.cycles(query);
 					const unreadable = fetchedCycles.filter(cycle => !readable(cycle.start, cycle.end)).length;
 					const rows = fetchedCycles
-						.filter(cycle => readable(cycle.start, cycle.end) && cycle.start >= since)
+						.filter(cycle => readable(cycle.start, cycle.end) && inPeriod(wakeDay(cycle.start, cycle.timezone_offset), cycle.timezone_offset))
 						.sort(newestFirst)
 						.map(cycle => ({ cycle, date: dayOf(cycle.start, cycle.timezone_offset), ...cycleView(cycle) }));
 
@@ -429,10 +448,12 @@ export function createMcpServer({ client, authStates, redirectUri, whoopConfigur
 
 				case 'get_workouts': {
 					const days = validateDays(typedArgs.days);
-					const { since, query } = period(days);
+					const { inPeriod, query } = period(days, now());
 					const fetchedWorkouts = await client.workouts(query);
 					const unreadable = fetchedWorkouts.filter(workout => !readable(workout.start, workout.end)).length;
-					const workouts = fetchedWorkouts.filter(workout => readable(workout.start, workout.end) && workout.start >= since).sort(newestFirst);
+					const workouts = fetchedWorkouts
+						.filter(workout => readable(workout.start, workout.end) && inPeriod(localDate(workout.start, workout.timezone_offset), workout.timezone_offset))
+						.sort(newestFirst);
 
 					if (workouts.length === 0) {
 						return text(`No workouts recorded in the last ${days} days.`);

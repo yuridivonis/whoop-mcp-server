@@ -14,6 +14,7 @@ import { createMcpServer } from '../src/tools.js';
 import { WhoopClient, type StoredWhoopTokens, type WhoopCycle, type WhoopRecovery, type WhoopSleep, type WhoopWorkout } from '@yuridivonis/whoop-client';
 import { FakeWhoop } from '../packages/whoop-client/test/fake-whoop.js';
 import { memoryDb, mcpRequest, readRpc, signIn, startTestServer, type TestServer } from './helpers.js';
+import { problems } from '../scripts/answer-rules.mjs';
 
 const HOUR = 60 * 60 * 1000;
 
@@ -28,8 +29,18 @@ function label(utcDay: number): string {
 
 async function callTool(server: TestServer, accessToken: string, name: string, args: object = {}): Promise<string> {
 	const res = await mcpRequest(server.baseUrl, accessToken, { method: 'tools/call', params: { name, arguments: args } });
-	const body = await readRpc<{ result: { content: { text: string }[] } }>(res);
-	return body.result.content[0].text;
+	const body = await readRpc<{ result: { content: { text: string }[]; isError?: boolean } }>(res);
+	return wellFormed(body.result.content[0].text, body.result.isError === true);
+}
+
+/**
+ * Every answer in this suite, whatever its fixtures, must pass the rules in scripts/answer-rules.mjs
+ * (the ones the weekly live check applies to real answers): no NaN or -0, tables with even rows,
+ * dates newest first, nothing glued to a table.
+ */
+function wellFormed(text: string, isError: boolean): string {
+	if (!isError) assert.deepEqual(problems(text), [], `a malformed answer:\n${text}`);
+	return text;
 }
 
 interface Connected {
@@ -42,7 +53,7 @@ interface Connected {
 /** An MCP client connected to the tools, with a fake WHOOP behind them. */
 async function connect(
 	t: TestContext,
-	{ connected = true, mode = 'http', tokens, whoopConfigured = true }: { connected?: boolean; mode?: 'http' | 'stdio'; tokens?: StoredWhoopTokens; whoopConfigured?: boolean } = {},
+	{ connected = true, mode = 'http', tokens, whoopConfigured = true, now }: { connected?: boolean; mode?: 'http' | 'stdio'; tokens?: StoredWhoopTokens; whoopConfigured?: boolean; now?: () => number } = {},
 ): Promise<Connected> {
 	const db = memoryDb(t);
 	if (tokens) db.saveTokens(tokens);
@@ -55,6 +66,7 @@ async function connect(
 		whoopConfigured,
 		publicUrl: new URL('http://localhost:3000'),
 		mode,
+		now,
 	});
 	const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
 	await server.connect(serverSide);
@@ -66,7 +78,8 @@ async function connect(
 		whoop,
 		call: async (name, args = {}) => {
 			const result = await client.callTool({ name, arguments: args });
-			return { text: (result.content as { text: string }[])[0].text, isError: result.isError === true };
+			const isError = result.isError === true;
+			return { text: wellFormed((result.content as { text: string }[])[0].text, isError), isError };
 		},
 	};
 }
@@ -375,7 +388,8 @@ describe('live data', () => {
 	});
 
 	it('covers exactly the days asked for, reading every page WHOOP returns', async t => {
-		const { whoop, call } = await connect(t);
+		// Noon UTC: the same date in Singapore, where the nights are, so today is the newest night's day.
+		const { whoop, call } = await connect(t, { now: () => utcMidnight(0) + 12 * HOUR });
 		addNights(whoop, Array.from({ length: 40 }, (_, daysAgo) => night(daysAgo, 50 + (daysAgo % 40))));
 
 		const month = (await call('get_recovery_trends', { days: 30 })).text;
@@ -384,6 +398,20 @@ describe('live data', () => {
 
 		const week = (await call('get_sleep_analysis', { days: 7 })).text;
 		assert.equal(week.slice(0, week.indexOf('### Details')).match(/^\| (?!Date|-)/gm)?.length, 7);
+	});
+
+	it("counts the user's local days, so an answer never shows more days than asked for", async t => {
+		// 01:00 in Singapore, 17:00 UTC the day before: the user's week is the 7 local days ending today,
+		// and the night they woke from 7 days ago is its oldest. Counted in UTC days it would be an 8th row.
+		const { whoop, call } = await connect(t, { now: () => utcMidnight(0) + 17 * HOUR });
+		addNights(whoop, Array.from({ length: 10 }, (_, daysAgo) => night(daysAgo, 50 + daysAgo)));
+
+		const week = (await call('get_recovery_trends', { days: 7 })).text;
+		assert.equal(week.match(/^\| (?!Date|-)/gm)?.length, 6, 'six nights: the seventh local day, today, has no night yet');
+		assert.match(week, new RegExp(`\\| ${label(utcMidnight(-5))} \\| 55% \\|`), 'the oldest local day in the week');
+		assert.doesNotMatch(week, new RegExp(label(utcMidnight(-6))), 'the day before the week');
+		assert.equal((await call('get_strain_history', { days: 7 })).text.match(/^\| (?!Date|-)/gm)?.length, 6);
+		assert.equal((await call('get_sleep_analysis', { days: 7 })).text.match(/^\| (?!Date|-)/gm)?.length, 6 * 2, 'nights in both tables');
 	});
 
 	it("dates a recovery by its cycle's day even when the cycle began the day before the period", async t => {
@@ -395,18 +423,24 @@ describe('live data', () => {
 		cycle.timezone_offset = sleep.timezone_offset = '-10:00';
 		addNights(whoop, [{ cycle, sleep, recovery }]);
 
-		const week = (await call('get_recovery_trends', { days: 7 })).text;
-		assert.match(week, new RegExp(`\\| ${label(utcMidnight(-8))} \\| 64% \\|`), 'the local day the shift worker woke up');
+		const period = (await call('get_recovery_trends', { days: 10 })).text;
+		assert.match(period, new RegExp(`\\| ${label(utcMidnight(-8))} \\| 64% \\|`), 'the local day the shift worker woke up');
+		// Eight local days ago, so a 7-day answer leaves it out even though WHOOP recorded it 7 UTC days ago.
+		assert.doesNotMatch((await call('get_recovery_trends', { days: 7 })).text, /64%/);
 	});
 
-	it("dates a recovery by its cycle's day when the strap synced it days later", async t => {
-		const { whoop, call } = await connect(t);
-		const { cycle, sleep, recovery } = night(9, 58); // asleep 9 nights ago...
-		recovery.created_at = new Date(utcMidnight(-7) + 2 * HOUR).toISOString(); // ...recorded by WHOOP 7 days ago
-		addNights(whoop, [{ cycle, sleep, recovery }]);
+	it("dates a recovery by its cycle's day when the strap synced it days later, and lists it only if that day is in the period", async t => {
+		const { whoop, call } = await connect(t, { now: () => utcMidnight(0) + 12 * HOUR });
+		const synced = (daysAgo: number, score: number) => {
+			const { cycle, sleep, recovery } = night(daysAgo, score);
+			recovery.created_at = new Date(utcMidnight(-1) + 2 * HOUR).toISOString(); // recorded by WHOOP yesterday
+			return { cycle, sleep, recovery };
+		};
+		addNights(whoop, [synced(5, 58), synced(9, 41)]);
 
 		const week = (await call('get_recovery_trends', { days: 7 })).text;
-		assert.match(week, new RegExp(`\\| ${label(utcMidnight(-9))} \\| 58% \\|`));
+		assert.match(week, new RegExp(`\\| ${label(utcMidnight(-5))} \\| 58% \\|`), 'the night 5 days ago, under its own day');
+		assert.doesNotMatch(week, /41%/, 'the night 9 days ago is outside the week, whenever it was synced');
 	});
 
 	it('shares one request between tools that need the same data at the same moment', async t => {

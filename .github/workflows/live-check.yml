@@ -1,0 +1,93 @@
+name: Live check
+
+# Two guards against the world changing under the server, run weekly, by hand, and when a
+# version is released:
+#   1. WHOOP's published OpenAPI spec is compared with the WHOOP client's types.
+#   2. The maintainer's own test server, connected to the maintainer's own WHOOP account, is
+#      asked every question the tools answer, and the answers are checked by rules and read by
+#      Claude for values that are implausible or inconsistent. The answers themselves never
+#      leave the job: the report names tools, places and kinds of problem only.
+# A failure opens (or adds to) an issue labelled live-check. Forks skip the second job, and
+# any repository without the LIVE_CHECK_URL variable and LIVE_CHECK_PASSWORD secret does.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Mondays, 06:00 UTC
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  openapi:
+    name: WHOOP's API spec matches the client's types
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Compare the spec with packages/whoop-client/src/types.ts
+        run: |
+          set -o pipefail
+          node scripts/check-whoop-openapi.mjs | tee drift-report.txt
+      - name: Open or update the live-check issue
+        if: failure() && github.repository == 'yuridivonis/whoop-mcp-server'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          { echo "## WHOOP's API spec no longer matches the client's types"; echo; echo '```'; cat drift-report.txt; echo '```'; } > report.md
+          scripts/live-check-issue.sh report.md
+
+  answers:
+    name: Real answers from the test server
+    if: github.repository == 'yuridivonis/whoop-mcp-server'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    env:
+      LIVE_CHECK_URL: ${{ vars.LIVE_CHECK_URL }}
+      LIVE_CHECK_PASSWORD: ${{ secrets.LIVE_CHECK_PASSWORD }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      LIVE_CHECK_REPORT: live-check-report.md
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Is a server configured
+        id: server
+        run: |
+          if [ -n "$LIVE_CHECK_URL" ] && [ -n "$LIVE_CHECK_PASSWORD" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No LIVE_CHECK_URL variable or no LIVE_CHECK_PASSWORD secret: nothing to ask."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.server.outputs.configured == 'true'
+        with:
+          node-version: 24
+      - name: Ask every question and check the answers
+        if: steps.server.outputs.configured == 'true'
+        run: node scripts/live-check.mjs
+      - name: Report
+        if: always() && steps.server.outputs.configured == 'true'
+        run: |
+          if [ -f "$LIVE_CHECK_REPORT" ]; then cat "$LIVE_CHECK_REPORT" >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Open or update the live-check issue
+        if: failure() && steps.server.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -f "$LIVE_CHECK_REPORT" ]; then
+            { echo "## Live check"; echo; echo "The check itself failed before it could write a report."; } > "$LIVE_CHECK_REPORT"
+          fi
+          scripts/live-check-issue.sh "$LIVE_CHECK_REPORT"

@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.5.2] - 2026-10-04
+
+Days are counted the way you count them. Nothing to do when upgrading: redeploy, or let Railway's auto updates do it.
+
+### Fixed
+
+- **A period of N days is your last N local days, today included.** The tools used to count days in UTC, so depending on your timezone and the time of day an answer could show one day too many or one too few, and the oldest day shown could be one before the period. Now a night, recovery or cycle is in the period when the day you woke up into is, and a nap or workout when the local day it started is, each in the timezone it was recorded in. A recovery the strap synced days late is listed under its own day, and only when that day is in the period.
+
+### Added
+
+- **Three guards for the project** (nothing changes in a deployment): the test suite checks every tool answer it produces against the rules in `scripts/answer-rules.mjs` (no NaN or negative zero, well-formed tables, dates newest first, nothing glued to a table); a weekly workflow compares WHOOP's published OpenAPI spec with the WHOOP client's types, so a field WHOOP adds or removes is noticed within a week; and, in this repository only, the same workflow asks the maintainer's own test server every question the tools answer and checks the real answers, by the rules and by a reading from Claude. Problems open an issue labelled `live-check`. See the README's Contributing section.
+
 ## [1.5.1] - 2026-10-03
 
 ### Fixed

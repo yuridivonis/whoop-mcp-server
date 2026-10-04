@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdtempSync, readFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { WhoopCycle, WhoopRecovery, WhoopSleep, WhoopWorkout } from '@yuridivonis/whoop-client';
@@ -90,6 +92,40 @@ describe('the live check script', () => {
 		assert.equal(status, 2, out);
 		assert.match(report, /the server could not be asked: sign-in answered \d+ without a code/);
 		assert.doesNotMatch(out, /not the password/);
+	});
+
+	it('lets only the fixed vocabulary of the reviewer through, whatever Claude writes', async t => {
+		// A fake Claude API that flags one real place and one "problem" full of values.
+		const reply = { problems: [
+			{ tool: 'get_today', where: 'Recovery', kind: 'a value outside what a human body can produce' },
+			{ tool: 'get_sleep_analysis (7 days)', where: 'Sat, Oct 4 HRV 58.4 ms', kind: 'HRV of 58.4 ms on Oct 4 is too low' },
+			{ tool: 'get_workouts (30 days)', where: 'Distance', kind: 'a unit that looks wrong for its number' },
+		] };
+		let request: { model?: string; system?: string; messages?: { content: string }[] } = {};
+		const fake = createServer((req, res) => {
+			let body = '';
+			req.on('data', chunk => { body += chunk; });
+			req.on('end', () => {
+				request = JSON.parse(body);
+				res.setHeader('Content-Type', 'application/json');
+				res.end(JSON.stringify({ content: [{ type: 'text', text: '```json\n' + JSON.stringify(reply) + '\n```' }] }));
+			});
+		});
+		await new Promise<void>(resolve => fake.listen(0, resolve));
+		t.after(() => fake.close());
+
+		const { status, out, report } = await run(server, {
+			ANTHROPIC_API_KEY: 'test-key', LIVE_CHECK_REVIEWER_MODEL: 'claude-test', LIVE_CHECK_ANTHROPIC_URL: `http://localhost:${(fake.address() as AddressInfo).port}/v1/messages`,
+		});
+		assert.equal(status, 1, out);
+		assert.equal(request.model, 'claude-test');
+		assert.match(request.messages?.[0].content ?? '', /### get_today[\s\S]*### get_workouts \(30 days\)/, 'every answer went to the reviewer');
+		assert.match(request.system ?? '', /Privacy rule/);
+		assert.match(report, /Claude \(claude-test\) flagged 3 thing\(s\)\./);
+		assert.match(report, /- reviewer: get_today, Recovery: a value outside what a human body can produce/);
+		assert.match(report, /- reviewer: get_sleep_analysis \(7 days\), a place it did not name from the answer: a kind of problem outside the list/);
+		assert.match(report, /- reviewer: get_workouts \(30 days\), Distance: a unit that looks wrong for its number/);
+		assert.doesNotMatch(out, /58\.4|Oct 4|too low/, 'nothing the reviewer wrote outside the vocabulary gets out');
 	});
 
 	it('does nothing without a server to ask', async () => {

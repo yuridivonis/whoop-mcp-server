@@ -401,8 +401,8 @@ describe('live data', () => {
 	});
 
 	it("counts the user's local days, so an answer never shows more days than asked for", async t => {
-		// 01:00 in Singapore, 17:00 UTC the day before: the user's week is the 7 local days ending today,
-		// and the night they woke from 7 days ago is its oldest. Counted in UTC days it would be an 8th row.
+		// 01:00 in Singapore, 17:00 UTC the day before: the user's week is the 7 local days ending today, of
+		// which today has no night yet. Counted in UTC days, the night before the week would be a 7th row.
 		const { whoop, call } = await connect(t, { now: () => utcMidnight(0) + 17 * HOUR });
 		addNights(whoop, Array.from({ length: 10 }, (_, daysAgo) => night(daysAgo, 50 + daysAgo)));
 
@@ -414,7 +414,7 @@ describe('live data', () => {
 		assert.equal((await call('get_sleep_analysis', { days: 7 })).text.match(/^\| (?!Date|-)/gm)?.length, 6 * 2, 'nights in both tables');
 	});
 
-	it("dates a recovery by its cycle's day even when the cycle began the day before the period", async t => {
+	it("dates a recovery by its cycle's local wake day, not by the UTC day WHOOP recorded it", async t => {
 		const { whoop, call } = await connect(t);
 		// A night shift in Hawaii: asleep 10:00 to 18:00 local time, which ends after midnight UTC.
 		const { cycle, sleep, recovery } = night(0, 64);
@@ -436,11 +436,12 @@ describe('live data', () => {
 			recovery.created_at = new Date(utcMidnight(-1) + 2 * HOUR).toISOString(); // recorded by WHOOP yesterday
 			return { cycle, sleep, recovery };
 		};
-		addNights(whoop, [synced(5, 58), synced(9, 41)]);
+		addNights(whoop, [synced(5, 58), synced(9, 41), night(1, 70)]);
 
 		const week = (await call('get_recovery_trends', { days: 7 })).text;
 		assert.match(week, new RegExp(`\\| ${label(utcMidnight(-5))} \\| 58% \\|`), 'the night 5 days ago, under its own day');
 		assert.doesNotMatch(week, /41%/, 'the night 9 days ago is outside the week, whenever it was synced');
+		assert.ok(week.indexOf('70%') < week.indexOf('58%'), 'rows in day order, although the older night was recorded later');
 	});
 
 	it('shares one request between tools that need the same data at the same moment', async t => {

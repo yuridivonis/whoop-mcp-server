@@ -310,9 +310,12 @@ export function createMcpServer({ client, authStates, redirectUri, whoopConfigur
 						return cycle ? [wakeDay(cycle.start, cycle.timezone_offset), cycle.timezone_offset] : [recovery.created_at.slice(0, 10), null];
 					};
 					const unreadable = recoveries.filter(recovery => !readable(recovery.created_at)).length;
+					// Newest day first, whenever WHOOP recorded it: a late sync still lands under its own day.
+					const byDay = (a: WhoopRecovery, b: WhoopRecovery): number =>
+						recoveryDay(b)[0].localeCompare(recoveryDay(a)[0]) || Date.parse(b.created_at) - Date.parse(a.created_at);
 					const rows = recoveries
 						.filter(recovery => readable(recovery.created_at) && inPeriod(...recoveryDay(recovery)))
-						.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+						.sort(byDay)
 						.map(recovery => {
 							const cycle = cyclesById.get(recovery.cycle_id);
 							const date = cycle ? dayOf(cycle.start, cycle.timezone_offset) : `${formatDate(recovery.created_at.slice(0, 10))} (UTC)`;

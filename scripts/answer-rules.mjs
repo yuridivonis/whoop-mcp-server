@@ -44,7 +44,7 @@ export function problems(text) {
 		const token = new RegExp(`(^|[\\s|(])${bad.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}(?=$|[\\s|)%,.])`, 'm');
 		if (token.test(text)) found.push(`contains "${bad}"`);
 	}
-	if (/(^|[\s|(])-0(\.\d+)?(?=$|[\s|)%,.])/m.test(text)) found.push('contains a negative zero like "-0" or "-0.4"');
+	if (/(^|[\s|(])-0(\.0+)?(?=$|[\s|)%,]|\.(?!\d))/m.test(text)) found.push('contains a negative zero like "-0" or "-0.0"');
 	if (/\|[ \t]*\|/.test(text)) found.push('an empty table cell');
 	for (const table of tables(text)) {
 		for (const [n, row] of table.rows.entries()) {
@@ -53,8 +53,9 @@ export function problems(text) {
 		// Dates descend within a table (allowing the same day twice: two workouts, a night and a nap).
 		const days = table.rows.map(row => monthDay(row[0])).filter(value => value !== null);
 		for (let i = 1; i < days.length; i++) {
-			// A year boundary (Dec after Jan) is the one allowed increase.
-			if (days[i] > days[i - 1] && !(days[i] >= 1100 && days[i - 1] < 100)) {
+			// The one allowed increase is a year boundary: a period of up to 90 days can step from
+			// January to March back into October to December.
+			if (days[i] > days[i - 1] && !(days[i] >= 900 && days[i - 1] < 300)) {
 				found.push(`table at line ${table.line}: dates are not newest first (row ${i + 1})`);
 				break;
 			}

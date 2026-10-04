@@ -35,9 +35,9 @@ describe('the answer rules', () => {
 	it('catch the values a bug leaks through formatting, as cells or words, not inside other words', () => {
 		assert.deepEqual(problems('| Date | HRV |\n|---|---|\n| Sat, Oct 4 | NaN |'), ['contains "NaN"']);
 		assert.deepEqual(problems('Recovery: undefined%'), ['contains "undefined"']);
-		assert.deepEqual(problems('HRV -0 ms'), ['contains a negative zero like "-0" or "-0.4"']);
-		assert.deepEqual(problems('Skin temp -0.4 °C'), ['contains a negative zero like "-0" or "-0.4"']);
-		assert.deepEqual(problems('Skin temp −0.4 °C, a 10-0 week'), [], 'a real minus sign is a real negative; 10-0 is not a zero');
+		assert.deepEqual(problems('HRV -0 ms'), ['contains a negative zero like "-0" or "-0.0"']);
+		assert.deepEqual(problems('Skin temp -0.0 °C'), ['contains a negative zero like "-0" or "-0.0"']);
+		assert.deepEqual(problems('Skin temp -0.4 °C, −0.4 °C, a 10-0 week'), [], 'a negative value is not a negative zero; 10-0 is not a zero');
 		assert.deepEqual(problems('Steps: N/A today'), ['contains "N/A"']);
 		assert.deepEqual(problems('Woke on Invalid Date'), ['contains "Invalid Date"']);
 		assert.deepEqual(problems('Nana napped on a null-steps day, then the Infinity Pool run'), ['contains "Infinity"'], 'words containing or joined to a forbidden one are fine');
@@ -55,6 +55,8 @@ describe('the answer rules', () => {
 		assert.deepEqual(problems('| Date | HRV |\n|---|---|\n| Fri, Oct 3 | 45 |\n| Sat, Oct 4 | 45 |'), ['table at line 1: dates are not newest first (row 2)']);
 		assert.deepEqual(problems('| Date | HRV |\n|---|---|\n| Sat, Oct 4 | 45 |\n| Sat, Oct 4 | 45 |\n| Fri, Oct 3 | 45 |'), []);
 		assert.deepEqual(problems('| Date | HRV |\n|---|---|\n| Thu, Jan 1 | 45 |\n| Wed, Dec 31 | 45 |'), []);
+		assert.deepEqual(problems('| Date | HRV |\n|---|---|\n| Sun, Mar 1 | 45 |\n| Tue, Dec 2 | 45 |'), [], 'a 90-day period across the year with January unworn');
+		assert.deepEqual(problems('| Date | HRV |\n|---|---|\n| Sun, Mar 1 | 45 |\n| Tue, Jun 2 | 45 |'), ['table at line 1: dates are not newest first (row 2)']);
 		assert.deepEqual(problems('| Date | HRV |\n|---|---|\n| Sat, Oct 4 (day in progress) | 45 |\n| Fri, Oct 3 (UTC) | 45 |'), []);
 	});
 });

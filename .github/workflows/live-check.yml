@@ -1,7 +1,8 @@
 name: Live check
 
-# Two guards against the world changing under the server, run weekly, by hand, and when a
-# version is released:
+# Two guards against the world changing under the server, run weekly and by hand (a release
+# can't start it: Railway's auto updates reach the test server later, and the weekly run
+# reports the server's version):
 #   1. WHOOP's published OpenAPI spec is compared with the WHOOP client's types.
 #   2. The maintainer's own test server, connected to the maintainer's own WHOOP account, is
 #      asked every question the tools answer, and the answers are checked by rules and read by
@@ -14,8 +15,6 @@ on:
   schedule:
     - cron: '0 6 * * 1' # Mondays, 06:00 UTC
   workflow_dispatch:
-  release:
-    types: [published]
 
 permissions:
   contents: read
@@ -38,13 +37,14 @@ jobs:
       - name: Compare the spec with packages/whoop-client/src/types.ts
         run: |
           set -o pipefail
-          node scripts/check-whoop-openapi.mjs | tee drift-report.txt
+          node scripts/check-whoop-openapi.mjs 2>&1 | tee drift-report.txt
       - name: Open or update the live-check issue
         if: failure() && github.repository == 'yuridivonis/whoop-mcp-server'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          { echo "## WHOOP's API spec no longer matches the client's types"; echo; echo '```'; cat drift-report.txt; echo '```'; } > report.md
+          if grep -q '^DRIFT' drift-report.txt; then title="WHOOP's API spec no longer matches the client's types"; else title="The WHOOP API spec check could not run"; fi
+          { echo "## $title"; echo; echo '```'; cat drift-report.txt; echo '```'; } > report.md
           scripts/live-check-issue.sh report.md
 
   answers:

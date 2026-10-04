@@ -5,9 +5,9 @@ name: Live check
 # reports the server's version):
 #   1. WHOOP's published OpenAPI spec is compared with the WHOOP client's types.
 #   2. The maintainer's own test server, connected to the maintainer's own WHOOP account, is
-#      asked every question the tools answer, and the answers are checked by rules and read by
-#      Claude for values that are implausible or inconsistent. The answers themselves never
-#      leave the job: the report names tools, places and kinds of problem only.
+#      asked every question the tools answer, and the answers are checked against the answer
+#      rules. The answers themselves never leave the job: the report names the question and
+#      the kind of problem only.
 # A failure opens (or adds to) an issue labelled live-check. Forks skip the second job, and
 # any repository without the LIVE_CHECK_URL variable and LIVE_CHECK_PASSWORD secret does.
 
@@ -51,7 +51,7 @@ jobs:
     name: Real answers from the test server
     if: github.repository == 'yuridivonis/whoop-mcp-server'
     runs-on: ubuntu-24.04
-    # Up to 14 requests of at most 60 s each; a timed-out job would skip the issue step.
+    # Up to 13 requests of at most 60 s each; a timed-out job would skip the issue step.
     timeout-minutes: 20
     permissions:
       contents: read
@@ -59,7 +59,6 @@ jobs:
     env:
       LIVE_CHECK_URL: ${{ vars.LIVE_CHECK_URL }}
       LIVE_CHECK_PASSWORD: ${{ secrets.LIVE_CHECK_PASSWORD }}
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       LIVE_CHECK_REPORT: live-check-report.md
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

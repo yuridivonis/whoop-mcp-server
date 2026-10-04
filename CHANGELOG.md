@@ -12,7 +12,7 @@ Days are counted the way you count them. Nothing to do when upgrading: redeploy,
 
 ### Added
 
-- **Three guards for the project** (nothing changes in a deployment): the test suite checks every tool answer it produces against the rules in `scripts/answer-rules.mjs` (no NaN or negative zero, well-formed tables, dates newest first, nothing glued to a table); a weekly workflow (also run on demand) compares WHOOP's published OpenAPI spec with the WHOOP client's types, so a field WHOOP adds or removes is noticed within a week; and, in this repository only, the same workflow asks the maintainer's own test server every question the tools answer and checks the real answers, by the rules and by a reading from Claude. Problems open an issue labelled `live-check`. See the README's Contributing section.
+- **Three guards for the project** (nothing changes in a deployment): the test suite checks every tool answer it produces against the rules in `scripts/answer-rules.mjs` (no NaN or negative zero, well-formed tables, dates newest first, nothing glued to a table); a weekly workflow (also run on demand) compares WHOOP's published OpenAPI spec with the WHOOP client's types, so a field WHOOP adds or removes is noticed within a week; and, in this repository only, the same workflow asks the maintainer's own test server every question the tools answer and checks the real answers against the same rules. Problems open an issue labelled `live-check`. See the README's Contributing section.
 
 ## [1.5.1] - 2026-10-03
 

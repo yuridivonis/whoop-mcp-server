@@ -3,8 +3,6 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdtempSync, readFileSync } from 'node:fs';
-import { createServer } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { WhoopCycle, WhoopRecovery, WhoopSleep, WhoopWorkout } from '@yuridivonis/whoop-client';
@@ -74,13 +72,12 @@ describe('the live check script', () => {
 	});
 	after(() => server.close());
 
-	it('signs in like a client, asks every question, applies the rules, and reports without the answers', async () => {
+	it('signs in like an MCP app, asks every question, applies the rules, and reports without the answers', async () => {
 		const { status, out, report } = await run(server, {});
 		assert.equal(status, 0, out);
 		assert.match(report, /^## Live check, \d{4}-\d{2}-\d{2}/);
 		assert.match(report, /Server version \d+\.\d+\.\d+\./, 'the version from initialize, matching this checkout');
 		assert.match(report, /9 of 9 answers received; the rules pass on all of them\./);
-		assert.match(report, /No ANTHROPIC_API_KEY: the answers were checked by the rules only\./);
 		assert.match(report, /All clear\./);
 		assert.doesNotMatch(out, /\| (Sun|Mon|Tue|Wed|Thu|Fri|Sat), /, 'no table row from an answer is printed');
 		assert.doesNotMatch(out, /58\.4|96\.5|33\.1/, 'no value from an answer is printed');
@@ -94,73 +91,14 @@ describe('the live check script', () => {
 		assert.doesNotMatch(out, /not the password/);
 	});
 
-	it('lets only the fixed vocabulary of the reviewer through, whatever Claude writes', async t => {
-		// A fake Claude API that flags one real place, one "problem" full of values, and then echoes
-		// every heading and bold label it was sent as a place, so the places the script allows are
-		// proven free of values on real answers (get_today's headings carry dates and the sleep span).
-		let request: { model?: string; system?: string; messages?: { content: string }[] } = {};
-		const fake = createServer((req, res) => {
-			let body = '';
-			req.on('data', chunk => { body += chunk; });
-			req.on('end', () => {
-				request = JSON.parse(body);
-				const sent = request.messages?.[0].content ?? '';
-				const headings = [...sent.matchAll(/^#+\s*(.+)$/gm)].map(m => m[1]);
-				const headerCells = [...sent.matchAll(/^\| (.+) \|\n\|[-|]+\|$/gm)].flatMap(m => m[1].split(' | '));
-				const echoed = [
-					...headings, // copied whole, as a careless model would
-					...headings.map(heading => heading.split(/[,(]/)[0].trim()), // and as asked
-					...headerCells,
-					...[...sent.matchAll(/\*\*([^*]+)\*\*/g)].map(m => m[1]),
-				].map(where => ({ tool: 'get_today', where, kind: 'a missing day' }));
-				const reply = { problems: [
-					{ tool: 'get_today', where: 'Recovery', kind: 'a value outside what a human body can produce' },
-					{ tool: 'get_sleep_analysis (7 days)', where: 'Sat, Oct 4 HRV 58.4 ms', kind: 'HRV of 58.4 ms on Oct 4 is too low' },
-					{ tool: 'get_workouts (30 days)', where: 'Distance', kind: 'a unit that looks wrong for its number' },
-					...echoed,
-				] };
-				res.setHeader('Content-Type', 'application/json');
-				res.end(JSON.stringify({ content: [{ type: 'text', text: '```json\n' + JSON.stringify(reply) + '\n```' }] }));
-			});
-		});
-		await new Promise<void>(resolve => fake.listen(0, resolve));
-		t.after(() => fake.close());
-
-		const { status, out, report } = await run(server, {
-			ANTHROPIC_API_KEY: 'test-key', LIVE_CHECK_REVIEWER_MODEL: 'claude-test', LIVE_CHECK_ANTHROPIC_URL: `http://localhost:${(fake.address() as AddressInfo).port}/v1/messages`,
-		});
-		assert.equal(status, 1, out);
-		assert.equal(request.model, 'claude-test');
-		assert.match(request.messages?.[0].content ?? '', /### get_today[\s\S]*### get_workouts \(30 days\)/, 'every answer went to the reviewer');
-		assert.match(request.system ?? '', /Privacy rule/);
-		assert.match(report, /Claude \(claude-test\) flagged \d+ thing\(s\)\./);
-		assert.match(report, /- reviewer: get_today, Recovery: a value outside what a human body can produce/);
-		assert.match(report, /- reviewer: get_sleep_analysis \(7 days\), a place it did not name from the answer: a kind of problem outside the list/);
-		assert.match(report, /- reviewer: get_workouts \(30 days\), Distance: a unit that looks wrong for its number/);
-		assert.match(report, /- reviewer: get_today, Sleep: a missing day/, 'the sleep heading, cut before its span, is a place');
-		assert.match(report, /- reviewer: get_today, a place it did not name from the answer: a missing day/, 'a whole heading is not');
-		assert.doesNotMatch(report, /Averages over the/, 'a heading with a count in it is not');
-		assert.match(report, /- reviewer: get_today, SpO2 \(%\): a missing day/, 'a column header is, digits and all');
-		assert.match(report, /- reviewer: get_today, Zones 4–5: a missing day/);
-		assert.doesNotMatch(out, /58\.4|too low/, 'nothing the reviewer wrote outside the vocabulary gets out');
-		assert.doesNotMatch(out, /\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b|\d\d:\d\d|→/, 'no date, time or span from a heading gets out');
-		// Digits may appear only in the report's own lines and in the server's literal labels ("(7 days)", "SpO2 (%)", "Zones 4–5").
-		const digits = (text: string) => (text.match(/\d/g) ?? []).length;
-		const labelDigits = (line: string) => [...line.matchAll(/\((7|30) days\)|SpO2( \(%\))?|[Zz]ones? [0-9–]+/g)].reduce((n, m) => n + digits(m[0]), 0);
-		const strayDigits = out.split('\n').filter(line => digits(line) > labelDigits(line) && !/^## Live check, |^Server version |answers received|flagged \d+ thing/.test(line));
-		assert.deepEqual(strayDigits, [], 'digits only on the report\'s own lines');
-	});
-
 	it('fails when the server is not connected to WHOOP, instead of passing empty answers', async t => {
 		const disconnected = await startTestServer();
 		t.after(() => disconnected.close());
 
-		const { status, out, report } = await run(disconnected, { ANTHROPIC_API_KEY: 'unused', LIVE_CHECK_ANTHROPIC_URL: 'http://localhost:9/never-called' });
+		const { status, out, report } = await run(disconnected, {});
 		assert.equal(status, 1, out);
 		assert.equal(report.match(/: the server is not connected to WHOOP$/gm)?.length, 9, 'every question');
 		assert.match(report, /0 of 9 answers received/);
-		assert.match(report, /Nothing for the reviewer to read\./);
-		assert.doesNotMatch(report, /could not run/);
 		assert.doesNotMatch(report, /All clear/);
 	});
 

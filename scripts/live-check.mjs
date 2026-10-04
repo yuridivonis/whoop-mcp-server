@@ -1,17 +1,13 @@
 #!/usr/bin/env node
 /**
  * Asks a running Whoop MCP Server, connected to a real WHOOP account, every question the
- * tools answer, and checks the answers: first the rules in answer-rules.mjs, then, when
- * ANTHROPIC_API_KEY is set, a reading by Claude for values that are implausible or don't
- * agree with each other. Nothing from the answers is printed, saved or put in an issue:
- * the report names tools, places and kinds of problem, each from a fixed vocabulary.
+ * tools answer, and checks the answers against the rules in answer-rules.mjs. Nothing from
+ * the answers is printed, saved or put in an issue: the report names the question and the
+ * kind of problem, in the script's own words.
  *
- *   LIVE_CHECK_URL             the server, e.g. https://whoop.example.up.railway.app
- *   LIVE_CHECK_PASSWORD        its MCP_AUTH_PASSWORD
- *   ANTHROPIC_API_KEY          optional; without it only the rules run
- *   LIVE_CHECK_REVIEWER_MODEL  optional; the Claude model that reads the answers
- *   LIVE_CHECK_REPORT          optional; a file to write the Markdown report to
- *   LIVE_CHECK_ANTHROPIC_URL   optional; where the Claude API is (the tests point it at a fake)
+ *   LIVE_CHECK_URL        the server, e.g. https://whoop.example.up.railway.app
+ *   LIVE_CHECK_PASSWORD   its MCP_AUTH_PASSWORD
+ *   LIVE_CHECK_REPORT     optional; a file to write the Markdown report to
  *
  * Exits 1 when there are problems, 2 when the server couldn't be asked at all.
  */
@@ -20,8 +16,6 @@ import { createHash, randomBytes } from 'node:crypto';
 import { problems, tables } from './answer-rules.mjs';
 
 const REDIRECT_URI = 'http://localhost:9999/oauth/callback';
-const REVIEWER_MODEL = process.env.LIVE_CHECK_REVIEWER_MODEL || 'claude-sonnet-5';
-const ANTHROPIC_URL = process.env.LIVE_CHECK_ANTHROPIC_URL || 'https://api.anthropic.com/v1/messages';
 const TIMEOUT_MS = 60_000;
 const QUESTIONS = [
 	['get_today', {}],
@@ -29,21 +23,10 @@ const QUESTIONS = [
 ];
 const questionLabel = (tool, args) => (args.days ? `${tool} (${args.days} days)` : tool);
 
-/** The kinds of problem the reviewer may report: its output is matched against these words and nothing else. */
-const PROBLEM_KINDS = [
-	'a value outside what a human body can produce',
-	'the summary disagrees with a table',
-	'the 7-day and 30-day answers disagree',
-	'an average disagrees with its rows',
-	'a count disagrees with its rows',
-	'a date out of order or in the future',
-	'a duplicated day',
-	'a missing day',
-	'a label that does not fit its value',
-	'a unit that looks wrong for its number',
-	'formatting that would confuse a reader',
-	'something else',
-];
+/** The server's own words when it has no WHOOP connection to answer from (src/whoop-messages.ts). */
+const NOT_CONNECTED = /Use the get_auth_url tool to (connect|reconnect)\./;
+/** The answers that always carry a heading when the server has data: a 30-day period without one means none came. */
+const EXPECT_DATA = new Set(['get_today', 'get_recovery_trends (30 days)', 'get_sleep_analysis (30 days)', 'get_strain_history (30 days)']);
 
 const base = process.env.LIVE_CHECK_URL?.replace(/\/$/, '');
 const password = process.env.LIVE_CHECK_PASSWORD;
@@ -56,7 +39,16 @@ function timed(url, init) {
 	return fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
 }
 
-/** Registers a client, signs in with the password and exchanges the code, as Claude.ai does. */
+/** A response's JSON body, or an error in fixed words: a proxy page must not reach the report. */
+async function asJson(response, what) {
+	try {
+		return await response.json();
+	} catch {
+		throw new Error(`${what} answered something other than JSON`);
+	}
+}
+
+/** Registers a client, signs in with the password and exchanges the code, as an MCP app does. */
 async function signIn() {
 	const registered = await timed(`${base}/register`, {
 		method: 'POST',
@@ -85,15 +77,6 @@ async function signIn() {
 	return (await asJson(tokens, 'token exchange')).access_token;
 }
 
-/** A response's JSON body, or an error in fixed words: a proxy page must not reach the report. */
-async function asJson(response, what) {
-	try {
-		return await response.json();
-	} catch {
-		throw new Error(`${what} answered something other than JSON`);
-	}
-}
-
 /** One JSON-RPC request to /mcp; the server answers as JSON or as one SSE event. */
 async function rpc(accessToken, method, params) {
 	const res = await timed(`${base}/mcp`, {
@@ -118,74 +101,6 @@ async function rpc(accessToken, method, params) {
 /** Row count of an answer's first table: a 30-day answer must have at least a 7-day answer's rows. */
 function firstTableRows(text) {
 	return tables(text)[0]?.rows.length ?? 0;
-}
-
-/**
- * The places the reviewer may name: the server's own words from the answers, never a value. A
- * heading counts up to its first comma or parenthesis and only without a digit (headings carry
- * dates, spans and counts); table headers and the summary's bold labels are literals in the
- * server's code, so "SpO2 (%)" and "Zones 4–5" stay nameable.
- */
-function placesIn(answers) {
-	const places = new Set();
-	for (const { text } of answers) {
-		for (const line of text.split('\n')) {
-			const heading = /^#+\s*([^,(]+)/.exec(line);
-			if (heading && !/\d/.test(heading[1])) places.add(heading[1].trim());
-			for (const bold of line.matchAll(/\*\*([^*]+)\*\*/g)) places.add(bold[1]);
-		}
-		for (const table of tables(text)) for (const cell of table.header) places.add(cell);
-	}
-	places.delete('');
-	return places;
-}
-
-/** The server's own words when it has no WHOOP connection to answer from (src/whoop-messages.ts). */
-const NOT_CONNECTED = /Use the get_auth_url tool to (connect|reconnect)\./;
-/** The answers that always carry a heading when the server has data: a 30-day period without one means none came. */
-const EXPECT_DATA = new Set(['get_today', 'get_recovery_trends (30 days)', 'get_sleep_analysis (30 days)', 'get_strain_history (30 days)']);
-
-/**
- * Claude reads the answers and reports what looks wrong. Only words from the fixed vocabulary
- * reach the report: a question label, a place from `placesIn`, a kind from PROBLEM_KINDS.
- */
-async function review(answers) {
-	const apiKey = process.env.ANTHROPIC_API_KEY;
-	if (!apiKey) return { ran: false, problems: [] };
-	const labels = QUESTIONS.map(([tool, args]) => questionLabel(tool, args));
-	const places = placesIn(answers);
-	const system = [
-		'You check the answers of a server that relays one person\'s WHOOP data (recovery, sleep, strain, workouts) to an AI assistant.',
-		'The server passes WHOOP\'s values through with units and labels; it does not calculate anything beyond simple averages and totals.',
-		`Today is ${new Date().toISOString().slice(0, 10)} (UTC).`,
-		'Read every answer and report anything that looks like a bug in the server.',
-		'Unscored days, dashes for missing values, "pending", "couldn\'t score" and gaps where the strap wasn\'t worn are normal, not bugs.',
-		'Answer with JSON only, no prose: {"problems":[{"tool":"<one of the answer labels>","where":"<a place in that answer>","kind":"<one of the kinds below, copied exactly>"}]}.',
-		'A place is a heading\'s first words up to its first comma or parenthesis (such as "Recovery", "Sleep", "Averages"), a column header, or a bold label, copied exactly.',
-		`The kinds: ${PROBLEM_KINDS.map(kind => JSON.stringify(kind)).join(', ')}.`,
-		'Privacy rule: write nothing but those three fields, each copied from the lists; never a number, a date, a time or any value from the answers. An empty problems list is a fine answer.',
-	].join(' ');
-	const content = answers.map(({ label, text }) => `### ${label}\n\n${text}`).join('\n\n');
-	const res = await timed(ANTHROPIC_URL, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-		body: JSON.stringify({ model: REVIEWER_MODEL, max_tokens: 2000, system, messages: [{ role: 'user', content }] }),
-	});
-	if (!res.ok) return { ran: true, problems: [`the reviewer could not run: the Claude API answered ${res.status} for model ${REVIEWER_MODEL}`] };
-	let parsed;
-	try {
-		const reply = (await res.json()).content?.find(block => block.type === 'text')?.text ?? '';
-		parsed = JSON.parse(reply.replace(/^```(?:json)?\s*|\s*```$/g, ''));
-	} catch {
-		return { ran: true, problems: ['the reviewer answered with something other than the JSON asked for'] };
-	}
-	const found = (Array.isArray(parsed?.problems) ? parsed.problems : []).map(p => {
-		const tool = labels.includes(p?.tool) ? p.tool : 'an answer it did not name from the list';
-		const where = places.has(p?.where) ? p.where : 'a place it did not name from the answer';
-		const kind = PROBLEM_KINDS.includes(p?.kind) ? p.kind : 'a kind of problem outside the list';
-		return `${tool}, ${where}: ${kind}`;
-	});
-	return { ran: true, problems: found };
 }
 
 /** An error message's first clause: the server's own words, never a body WHOOP or anyone else sent. */
@@ -231,17 +146,7 @@ try {
 		const week = answers.find(a => a.tool === month.tool && a.days === 7);
 		if (week && firstTableRows(month.text) < firstTableRows(week.text)) found.push(`${month.label}: fewer rows than the 7-day answer`);
 	}
-	report.push(`${answers.length} of ${QUESTIONS.length} answers received; ${found.length === 0 ? 'the rules pass on all of them' : `${found.length} rule problem(s)`}.`);
-
-	const reviewed = answers.length === 0 ? { ran: false, problems: [], nothing: true } : await review(answers);
-	if (reviewed.nothing) {
-		report.push('Nothing for the reviewer to read.');
-	} else if (reviewed.ran) {
-		report.push(reviewed.problems.length === 0 ? `Claude (${REVIEWER_MODEL}) read the answers and saw nothing wrong.` : `Claude (${REVIEWER_MODEL}) flagged ${reviewed.problems.length} thing(s).`);
-		found.push(...reviewed.problems.map(p => `reviewer: ${p}`));
-	} else {
-		report.push('No ANTHROPIC_API_KEY: the answers were checked by the rules only.');
-	}
+	report.push(`${answers.length} of ${QUESTIONS.length} answers received; ${found.length === 0 ? 'the rules pass on all of them' : `${found.length} problem(s)`}.`);
 } catch (error) {
 	found.push(`the server could not be asked: ${firstClause(error.message)}`);
 }

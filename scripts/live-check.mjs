@@ -64,7 +64,7 @@ async function signIn() {
 		body: JSON.stringify({ client_name: 'Live check', redirect_uris: [REDIRECT_URI], token_endpoint_auth_method: 'none', grant_types: ['authorization_code'], response_types: ['code'] }),
 	});
 	if (registered.status !== 201) throw new Error(`registration answered ${registered.status}`);
-	const { client_id } = await registered.json();
+	const { client_id } = await asJson(registered, 'registration');
 
 	const verifier = randomBytes(32).toString('base64url');
 	const challenge = createHash('sha256').update(verifier).digest('base64url');
@@ -82,7 +82,16 @@ async function signIn() {
 		body: new URLSearchParams({ grant_type: 'authorization_code', code, code_verifier: verifier, client_id, redirect_uri: REDIRECT_URI }),
 	});
 	if (tokens.status !== 200) throw new Error(`token exchange answered ${tokens.status}`);
-	return (await tokens.json()).access_token;
+	return (await asJson(tokens, 'token exchange')).access_token;
+}
+
+/** A response's JSON body, or an error in fixed words: a proxy page must not reach the report. */
+async function asJson(response, what) {
+	try {
+		return await response.json();
+	} catch {
+		throw new Error(`${what} answered something other than JSON`);
+	}
 }
 
 /** One JSON-RPC request to /mcp; the server answers as JSON or as one SSE event. */
@@ -102,6 +111,7 @@ async function rpc(accessToken, method, params) {
 		throw new Error(`${method} answered something other than JSON`);
 	}
 	if (message.error) throw new Error(`${method} failed: ${message.error.message}`);
+	if (!message.result) throw new Error(`${method} answered without a result`);
 	return message.result;
 }
 
@@ -111,21 +121,23 @@ function firstTableRows(text) {
 }
 
 /**
- * The places the reviewer may name: the server's own words from the answers (a heading up to
- * its first comma or parenthesis, table headers, the bold labels of the summary), never a
- * value. Nothing with a digit in it qualifies, whatever the regexes let through.
+ * The places the reviewer may name: the server's own words from the answers, never a value. A
+ * heading counts up to its first comma or parenthesis and only without a digit (headings carry
+ * dates, spans and counts); table headers and the summary's bold labels are literals in the
+ * server's code, so "SpO2 (%)" and "Zones 4–5" stay nameable.
  */
 function placesIn(answers) {
 	const places = new Set();
 	for (const { text } of answers) {
 		for (const line of text.split('\n')) {
 			const heading = /^#+\s*([^,(]+)/.exec(line);
-			if (heading) places.add(heading[1].trim());
+			if (heading && !/\d/.test(heading[1])) places.add(heading[1].trim());
 			for (const bold of line.matchAll(/\*\*([^*]+)\*\*/g)) places.add(bold[1]);
 		}
 		for (const table of tables(text)) for (const cell of table.header) places.add(cell);
 	}
-	return new Set([...places].filter(place => place && !/\d/.test(place)));
+	places.delete('');
+	return places;
 }
 
 /** The server's own words when it has no WHOOP connection to answer from (src/whoop-messages.ts). */
@@ -221,8 +233,10 @@ try {
 	}
 	report.push(`${answers.length} of ${QUESTIONS.length} answers received; ${found.length === 0 ? 'the rules pass on all of them' : `${found.length} rule problem(s)`}.`);
 
-	const reviewed = await review(answers);
-	if (reviewed.ran) {
+	const reviewed = answers.length === 0 ? { ran: false, problems: [], nothing: true } : await review(answers);
+	if (reviewed.nothing) {
+		report.push('Nothing for the reviewer to read.');
+	} else if (reviewed.ran) {
 		report.push(reviewed.problems.length === 0 ? `Claude (${REVIEWER_MODEL}) read the answers and saw nothing wrong.` : `Claude (${REVIEWER_MODEL}) flagged ${reviewed.problems.length} thing(s).`);
 		found.push(...reviewed.problems.map(p => `reviewer: ${p}`));
 	} else {

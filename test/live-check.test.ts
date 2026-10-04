@@ -106,9 +106,11 @@ describe('the live check script', () => {
 				request = JSON.parse(body);
 				const sent = request.messages?.[0].content ?? '';
 				const headings = [...sent.matchAll(/^#+\s*(.+)$/gm)].map(m => m[1]);
+				const headerCells = [...sent.matchAll(/^\| (.+) \|\n\|[-|]+\|$/gm)].flatMap(m => m[1].split(' | '));
 				const echoed = [
 					...headings, // copied whole, as a careless model would
 					...headings.map(heading => heading.split(/[,(]/)[0].trim()), // and as asked
+					...headerCells,
 					...[...sent.matchAll(/\*\*([^*]+)\*\*/g)].map(m => m[1]),
 				].map(where => ({ tool: 'get_today', where, kind: 'a missing day' }));
 				const reply = { problems: [
@@ -136,10 +138,13 @@ describe('the live check script', () => {
 		assert.match(report, /- reviewer: get_sleep_analysis \(7 days\), a place it did not name from the answer: a kind of problem outside the list/);
 		assert.match(report, /- reviewer: get_workouts \(30 days\), Distance: a unit that looks wrong for its number/);
 		assert.match(report, /- reviewer: get_today, Sleep: a missing day/, 'the sleep heading, cut before its span, is a place');
-		assert.match(report, /- reviewer: get_today, a place it did not name from the answer: a missing day/, 'a heading with a count in it is not');
+		assert.match(report, /- reviewer: get_today, a place it did not name from the answer: a missing day/, 'a whole heading is not');
+		assert.doesNotMatch(report, /Averages over the/, 'a heading with a count in it is not');
+		assert.match(report, /- reviewer: get_today, SpO2 \(%\): a missing day/, 'a column header is, digits and all');
+		assert.match(report, /- reviewer: get_today, Zones 4–5: a missing day/);
 		assert.doesNotMatch(out, /58\.4|too low/, 'nothing the reviewer wrote outside the vocabulary gets out');
 		assert.doesNotMatch(out, /\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b|\d\d:\d\d|→/, 'no date, time or span from a heading gets out');
-		const ownWords = (line: string) => line.replace(/\((7|30) days\)/g, '');
+		const ownWords = (line: string) => line.replace(/\((7|30) days\)|SpO2( \(%\))?|[Zz]ones? [0-9–]+/g, '');
 		assert.ok(out.split('\n').map(ownWords).filter(line => /\d/.test(line)).every(line => /^## Live check, |^Server version |answers received|flagged \d+ thing/.test(line)), `digits only on the report's own lines:\n${out}`);
 	});
 
@@ -147,10 +152,12 @@ describe('the live check script', () => {
 		const disconnected = await startTestServer();
 		t.after(() => disconnected.close());
 
-		const { status, out, report } = await run(disconnected, {});
+		const { status, out, report } = await run(disconnected, { ANTHROPIC_API_KEY: 'unused', LIVE_CHECK_ANTHROPIC_URL: 'http://localhost:9/never-called' });
 		assert.equal(status, 1, out);
 		assert.equal(report.match(/: the server is not connected to WHOOP$/gm)?.length, 9, 'every question');
 		assert.match(report, /0 of 9 answers received/);
+		assert.match(report, /Nothing for the reviewer to read\./);
+		assert.doesNotMatch(report, /could not run/);
 		assert.doesNotMatch(report, /All clear/);
 	});
 

@@ -51,7 +51,8 @@ jobs:
     name: Real answers from the test server
     if: github.repository == 'yuridivonis/whoop-mcp-server'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # Up to 14 requests of at most 60 s each; a timed-out job would skip the issue step.
+    timeout-minutes: 20
     permissions:
       contents: read
       issues: write

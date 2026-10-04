@@ -144,8 +144,11 @@ describe('the live check script', () => {
 		assert.match(report, /- reviewer: get_today, Zones 4–5: a missing day/);
 		assert.doesNotMatch(out, /58\.4|too low/, 'nothing the reviewer wrote outside the vocabulary gets out');
 		assert.doesNotMatch(out, /\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b|\d\d:\d\d|→/, 'no date, time or span from a heading gets out');
-		const ownWords = (line: string) => line.replace(/\((7|30) days\)|SpO2( \(%\))?|[Zz]ones? [0-9–]+/g, '');
-		assert.ok(out.split('\n').map(ownWords).filter(line => /\d/.test(line)).every(line => /^## Live check, |^Server version |answers received|flagged \d+ thing/.test(line)), `digits only on the report's own lines:\n${out}`);
+		// Digits may appear only in the report's own lines and in the server's literal labels ("(7 days)", "SpO2 (%)", "Zones 4–5").
+		const digits = (text: string) => (text.match(/\d/g) ?? []).length;
+		const labelDigits = (line: string) => [...line.matchAll(/\((7|30) days\)|SpO2( \(%\))?|[Zz]ones? [0-9–]+/g)].reduce((n, m) => n + digits(m[0]), 0);
+		const strayDigits = out.split('\n').filter(line => digits(line) > labelDigits(line) && !/^## Live check, |^Server version |answers received|flagged \d+ thing/.test(line));
+		assert.deepEqual(strayDigits, [], 'digits only on the report\'s own lines');
 	});
 
 	it('fails when the server is not connected to WHOOP, instead of passing empty answers', async t => {

@@ -57,7 +57,7 @@ function declaredFields() {
 async function spec() {
 	const file = process.argv[2];
 	if (file) return JSON.parse(readFileSync(file, 'utf8'));
-	const response = await fetch(SPEC_URL);
+	const response = await fetch(SPEC_URL, { signal: AbortSignal.timeout(60_000) });
 	if (!response.ok) throw new Error(`WHOOP's spec answered ${response.status}`);
 	return response.json();
 }

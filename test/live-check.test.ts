@@ -95,18 +95,28 @@ describe('the live check script', () => {
 	});
 
 	it('lets only the fixed vocabulary of the reviewer through, whatever Claude writes', async t => {
-		// A fake Claude API that flags one real place and one "problem" full of values.
-		const reply = { problems: [
-			{ tool: 'get_today', where: 'Recovery', kind: 'a value outside what a human body can produce' },
-			{ tool: 'get_sleep_analysis (7 days)', where: 'Sat, Oct 4 HRV 58.4 ms', kind: 'HRV of 58.4 ms on Oct 4 is too low' },
-			{ tool: 'get_workouts (30 days)', where: 'Distance', kind: 'a unit that looks wrong for its number' },
-		] };
+		// A fake Claude API that flags one real place, one "problem" full of values, and then echoes
+		// every heading and bold label it was sent as a place, so the places the script allows are
+		// proven free of values on real answers (get_today's headings carry dates and the sleep span).
 		let request: { model?: string; system?: string; messages?: { content: string }[] } = {};
 		const fake = createServer((req, res) => {
 			let body = '';
 			req.on('data', chunk => { body += chunk; });
 			req.on('end', () => {
 				request = JSON.parse(body);
+				const sent = request.messages?.[0].content ?? '';
+				const headings = [...sent.matchAll(/^#+\s*(.+)$/gm)].map(m => m[1]);
+				const echoed = [
+					...headings, // copied whole, as a careless model would
+					...headings.map(heading => heading.split(/[,(]/)[0].trim()), // and as asked
+					...[...sent.matchAll(/\*\*([^*]+)\*\*/g)].map(m => m[1]),
+				].map(where => ({ tool: 'get_today', where, kind: 'a missing day' }));
+				const reply = { problems: [
+					{ tool: 'get_today', where: 'Recovery', kind: 'a value outside what a human body can produce' },
+					{ tool: 'get_sleep_analysis (7 days)', where: 'Sat, Oct 4 HRV 58.4 ms', kind: 'HRV of 58.4 ms on Oct 4 is too low' },
+					{ tool: 'get_workouts (30 days)', where: 'Distance', kind: 'a unit that looks wrong for its number' },
+					...echoed,
+				] };
 				res.setHeader('Content-Type', 'application/json');
 				res.end(JSON.stringify({ content: [{ type: 'text', text: '```json\n' + JSON.stringify(reply) + '\n```' }] }));
 			});
@@ -121,11 +131,39 @@ describe('the live check script', () => {
 		assert.equal(request.model, 'claude-test');
 		assert.match(request.messages?.[0].content ?? '', /### get_today[\s\S]*### get_workouts \(30 days\)/, 'every answer went to the reviewer');
 		assert.match(request.system ?? '', /Privacy rule/);
-		assert.match(report, /Claude \(claude-test\) flagged 3 thing\(s\)\./);
+		assert.match(report, /Claude \(claude-test\) flagged \d+ thing\(s\)\./);
 		assert.match(report, /- reviewer: get_today, Recovery: a value outside what a human body can produce/);
 		assert.match(report, /- reviewer: get_sleep_analysis \(7 days\), a place it did not name from the answer: a kind of problem outside the list/);
 		assert.match(report, /- reviewer: get_workouts \(30 days\), Distance: a unit that looks wrong for its number/);
-		assert.doesNotMatch(out, /58\.4|Oct 4|too low/, 'nothing the reviewer wrote outside the vocabulary gets out');
+		assert.match(report, /- reviewer: get_today, Sleep: a missing day/, 'the sleep heading, cut before its span, is a place');
+		assert.match(report, /- reviewer: get_today, a place it did not name from the answer: a missing day/, 'a heading with a count in it is not');
+		assert.doesNotMatch(out, /58\.4|too low/, 'nothing the reviewer wrote outside the vocabulary gets out');
+		assert.doesNotMatch(out, /\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b|\d\d:\d\d|→/, 'no date, time or span from a heading gets out');
+		const ownWords = (line: string) => line.replace(/\((7|30) days\)/g, '');
+		assert.ok(out.split('\n').map(ownWords).filter(line => /\d/.test(line)).every(line => /^## Live check, |^Server version |answers received|flagged \d+ thing/.test(line)), `digits only on the report's own lines:\n${out}`);
+	});
+
+	it('fails when the server is not connected to WHOOP, instead of passing empty answers', async t => {
+		const disconnected = await startTestServer();
+		t.after(() => disconnected.close());
+
+		const { status, out, report } = await run(disconnected, {});
+		assert.equal(status, 1, out);
+		assert.equal(report.match(/: the server is not connected to WHOOP$/gm)?.length, 9, 'every question');
+		assert.match(report, /0 of 9 answers received/);
+		assert.doesNotMatch(report, /All clear/);
+	});
+
+	it('reports a tool error by the server\'s own first words only', async t => {
+		const failing = await startTestServer();
+		t.after(() => failing.close());
+		failing.db.saveTokens({ access_token: 'whoop-access', refresh_token: 'whoop-refresh', expires_at: Date.now() + HOUR });
+		failing.whoop.failWith = 503;
+
+		const { status, out, report } = await run(failing, {});
+		assert.equal(status, 1, out);
+		assert.match(report, /- get_today: the tool answered an error: WHOOP is unavailable right now \(/, "the server's own first words");
+		assert.doesNotMatch(out, /Error: Error|\. Try again/, 'not the word Error alone, and nothing past the first clause');
 	});
 
 	it('does nothing without a server to ask', async () => {

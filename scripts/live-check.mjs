@@ -95,7 +95,12 @@ async function rpc(accessToken, method, params) {
 	const body = await res.text();
 	if (!res.ok) throw new Error(`${method} answered ${res.status}`);
 	const json = (res.headers.get('content-type') ?? '').includes('application/json') ? body : body.split('\n').find(line => line.startsWith('data: '))?.slice(6);
-	const message = JSON.parse(json ?? '{}');
+	let message;
+	try {
+		message = JSON.parse(json ?? '{}');
+	} catch {
+		throw new Error(`${method} answered something other than JSON`);
+	}
 	if (message.error) throw new Error(`${method} failed: ${message.error.message}`);
 	return message.result;
 }
@@ -106,21 +111,27 @@ function firstTableRows(text) {
 }
 
 /**
- * The places the reviewer may name: the server's own words from the answers (headings without
- * their counts, table headers, the bold labels of the summary), never a value.
+ * The places the reviewer may name: the server's own words from the answers (a heading up to
+ * its first comma or parenthesis, table headers, the bold labels of the summary), never a
+ * value. Nothing with a digit in it qualifies, whatever the regexes let through.
  */
 function placesIn(answers) {
 	const places = new Set();
 	for (const { text } of answers) {
 		for (const line of text.split('\n')) {
-			const heading = /^#+\s*(.+?)\s*(\(.*\))?\s*$/.exec(line);
-			if (heading) places.add(heading[1]);
+			const heading = /^#+\s*([^,(]+)/.exec(line);
+			if (heading) places.add(heading[1].trim());
 			for (const bold of line.matchAll(/\*\*([^*]+)\*\*/g)) places.add(bold[1]);
 		}
 		for (const table of tables(text)) for (const cell of table.header) places.add(cell);
 	}
-	return places;
+	return new Set([...places].filter(place => place && !/\d/.test(place)));
 }
+
+/** The server's own words when it has no WHOOP connection to answer from (src/whoop-messages.ts). */
+const NOT_CONNECTED = /Use the get_auth_url tool to (connect|reconnect)\./;
+/** The answers that always carry a heading when the server has data: a 30-day period without one means none came. */
+const EXPECT_DATA = new Set(['get_today', 'get_recovery_trends (30 days)', 'get_sleep_analysis (30 days)', 'get_strain_history (30 days)']);
 
 /**
  * Claude reads the answers and reports what looks wrong. Only words from the fixed vocabulary
@@ -137,7 +148,8 @@ async function review(answers) {
 		`Today is ${new Date().toISOString().slice(0, 10)} (UTC).`,
 		'Read every answer and report anything that looks like a bug in the server.',
 		'Unscored days, dashes for missing values, "pending", "couldn\'t score" and gaps where the strap wasn\'t worn are normal, not bugs.',
-		'Answer with JSON only, no prose: {"problems":[{"tool":"<one of the answer labels>","where":"<a heading, column header or bold label copied exactly from that answer>","kind":"<one of the kinds below, copied exactly>"}]}.',
+		'Answer with JSON only, no prose: {"problems":[{"tool":"<one of the answer labels>","where":"<a place in that answer>","kind":"<one of the kinds below, copied exactly>"}]}.',
+		'A place is a heading\'s first words up to its first comma or parenthesis (such as "Recovery", "Sleep", "Averages"), a column header, or a bold label, copied exactly.',
 		`The kinds: ${PROBLEM_KINDS.map(kind => JSON.stringify(kind)).join(', ')}.`,
 		'Privacy rule: write nothing but those three fields, each copied from the lists; never a number, a date, a time or any value from the answers. An empty problems list is a fine answer.',
 	].join(' ');
@@ -148,9 +160,9 @@ async function review(answers) {
 		body: JSON.stringify({ model: REVIEWER_MODEL, max_tokens: 2000, system, messages: [{ role: 'user', content }] }),
 	});
 	if (!res.ok) return { ran: true, problems: [`the reviewer could not run: the Claude API answered ${res.status} for model ${REVIEWER_MODEL}`] };
-	const reply = (await res.json()).content?.find(block => block.type === 'text')?.text ?? '';
 	let parsed;
 	try {
+		const reply = (await res.json()).content?.find(block => block.type === 'text')?.text ?? '';
 		parsed = JSON.parse(reply.replace(/^```(?:json)?\s*|\s*```$/g, ''));
 	} catch {
 		return { ran: true, problems: ['the reviewer answered with something other than the JSON asked for'] };
@@ -166,7 +178,7 @@ async function review(answers) {
 
 /** An error message's first clause: the server's own words, never a body WHOOP or anyone else sent. */
 function firstClause(text) {
-	return text.split('\n')[0].split(':')[0].slice(0, 120);
+	return text.replace(/^Error:\s*/, '').split('\n')[0].split(/:\s|:$|\.\s/)[0].slice(0, 120);
 }
 
 const report = [];
@@ -190,6 +202,14 @@ try {
 		const text = result.content?.[0]?.text ?? '';
 		if (result.isError) {
 			found.push(`${label}: the tool answered an error: ${firstClause(text)}`);
+			continue;
+		}
+		if (NOT_CONNECTED.test(text)) {
+			found.push(`${label}: the server is not connected to WHOOP`);
+			continue;
+		}
+		if (EXPECT_DATA.has(label) && !/^#/m.test(text)) {
+			found.push(`${label}: the tool answered without data`);
 			continue;
 		}
 		answers.push({ tool, days: args.days, label, text });

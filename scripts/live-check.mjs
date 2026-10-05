@@ -3,7 +3,7 @@
  * Asks a running Whoop MCP Server, connected to a real WHOOP account, every question the
  * tools answer, and checks the answers against the rules in answer-rules.mjs. Nothing from
  * the answers is printed, saved or put in an issue: the report names the question and the
- * kind of problem, in the script's own words.
+ * kind of problem, in the script's own words or the server's own first words.
  *
  *   LIVE_CHECK_URL        the server, e.g. https://whoop.example.up.railway.app
  *   LIVE_CHECK_PASSWORD   its MCP_AUTH_PASSWORD
@@ -93,6 +93,7 @@ async function rpc(accessToken, method, params) {
 	} catch {
 		throw new Error(`${method} answered something other than JSON`);
 	}
+	if (!message || typeof message !== 'object') throw new Error(`${method} answered something other than a JSON-RPC message`);
 	if (message.error) throw new Error(`${method} failed: ${message.error.message}`);
 	if (!message.result) throw new Error(`${method} answered without a result`);
 	return message.result;

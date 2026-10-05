@@ -302,7 +302,8 @@ export function createMcpServer({ client, authStates, redirectUri, whoopConfigur
 					const days = validateDays(typedArgs.days);
 					const { inPeriod, query } = period(days, now());
 					const [recoveries, cycles] = await Promise.all([client.recoveries(query), client.cycles(query)]);
-					const cyclesById = new Map(cycles.map(cycle => [cycle.id, cycle]));
+					// A cycle whose dates can't be read dates nothing; its recovery falls back to the day WHOOP scored it.
+					const cyclesById = new Map(cycles.filter(cycle => readable(cycle.start, cycle.end)).map(cycle => [cycle.id, cycle]));
 					// Days are the user's local days (see days.ts): a recovery belongs to the same day as its cycle.
 					// Without its cycle (not fetched), it's dated by the UTC date WHOOP recorded it.
 					const recoveryDay = (recovery: WhoopRecovery): [string, string | null] => {

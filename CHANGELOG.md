@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## [1.5.2] - 2026-10-04
+## [1.5.2] - 2026-10-05
 
 Days are counted the way you count them. Nothing to do when upgrading: redeploy, or let Railway's auto updates do it.
 

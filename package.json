@@ -35,7 +35,7 @@
     "typecheck": "tsc -b && tsc --noEmit -p test/tsconfig.json && tsc --noEmit -p packages/whoop-client/test/tsconfig.json"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@modelcontextprotocol/sdk": "^1.32.0",
     "@yuridivonis/whoop-client": "0.0.0",
     "better-sqlite3": "^13.0.3",
     "express": "^4.21.0",
@@ -44,7 +44,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
     "@types/express": "^5.0.0",
-    "@types/node": "^22.20.4",
+    "@types/node": "^22.20.5",
     "fast-check": "^4.10.2",
     "tsx": "^4.23.15",
     "typescript": "^5.7.2"

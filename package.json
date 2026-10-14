@@ -35,7 +35,7 @@
     "typecheck": "tsc -b && tsc --noEmit -p test/tsconfig.json && tsc --noEmit -p packages/whoop-client/test/tsconfig.json"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@modelcontextprotocol/sdk": "^1.31.0",
     "@yuridivonis/whoop-client": "0.0.0",
     "better-sqlite3": "^13.0.3",
     "express": "^4.21.0",
